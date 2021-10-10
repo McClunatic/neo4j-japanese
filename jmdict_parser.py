@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+import textwrap
 
 from typing import List
 
@@ -41,31 +42,91 @@ class NeoApp:
 
         self.close()
 
-    def add_entry(self, elem: etree.Element) -> int:
+    def add_entry(self, entry: etree.Element) -> int:
         """Adds an entry to the database.
 
         Args:
-            elem: The entry element.
+            entry: The entry element.
         """
 
         # Get the ID (ent_seq)
-        ent_seq = int(elem.find('ent_seq').text)
+        ent_seq = int(entry.find('ent_seq').text)
 
         with self.driver.session() as session:
             node_id = session.write_transaction(
-                self._add_and_return_entry,
+                self._merge_and_return_entry,
                 ent_seq,
             )
             print(f'Added entry with ent_seq {ent_seq}, node ID: {node_id}')
             return node_id
 
+    def add_kanji_for_entry(
+        self,
+        kanji: etree.Element,
+        entry: etree.Element,
+    ) -> int:
+        """Adds an entry to the database.
+
+        Args:
+            kanji: The k_ele kanji element.
+            entry: The entry element.
+        """
+
+        # Get the word or phrase (keb)
+        keb = kanji.find('keb').text
+
+        # Gather the information and priority codes
+        ke_infs = [elem.text for elem in kanji.findall('ke_inf')]
+        ke_pris = [elem.text for elem in kanji.findall('ke_pri')]
+
+        # Get the ent_seq of the containing entry
+        ent_seq = entry.find('ent_seq').text
+
+        with self.driver.session() as session:
+            node_id = session.write_transaction(
+                self._merge_and_return_kanji,
+                ent_seq,
+                keb,
+                ke_infs,
+                ke_pris,
+            )
+            print(f'Added kanji {keb} to entry {ent_seq}, node ID: {node_id}')
+            return node_id
+
     @staticmethod
-    def _add_and_return_entry(tx: Transaction, ent_seq: int) -> int:
-        """Adds an entry to the database."""
+    def _merge_and_return_entry(tx: Transaction, ent_seq: int) -> int:
+        """Merges and returns entry `ent_seq` in the database."""
 
         # Add a node for the entry
-        cypher = "MERGE (n:Entry {ent_seq: $ent_seq}) RETURN id(n) as node_id"
+        cypher = "MERGE (n:Entry {ent_seq: $ent_seq}) RETURN id(n) AS node_id"
         result = tx.run(cypher, ent_seq=ent_seq)
+        record = result.single()
+        return record['node_id']
+
+    @staticmethod
+    def _merge_and_return_kanji(
+        tx: Transaction,
+        ent_seq: int,
+        keb: str,
+        ke_infs: List[str],
+        ke_pris: List[str],
+    ) -> int:
+        """Merges and returns kanji `keb` related to entry `ent_seq`."""
+
+        # Add a node for the entry
+        cypher = textwrap.dedent("""\
+            MERGE (e:Entry {ent_seq: $ent_seq})
+            MERGE (k:Kanji {keb: $keb, ke_inf: $ke_infs, ke_pri: $ke_pris})
+            MERGE (e)-[:HAS_KANJI]->(k)
+            RETURN id(k) AS node_id
+        """)
+        result = tx.run(
+            cypher,
+            ent_seq=ent_seq,
+            keb=keb,
+            ke_infs=ke_infs,
+            ke_pris=ke_pris,
+        )
         record = result.single()
         return record['node_id']
 
@@ -114,8 +175,10 @@ def main(argv=sys.argv[1:]):
     for entry in root.iter('entry'):
         neo_app.add_entry(entry)
 
+        for k_ele in entry.findall('k_ele'):
+            neo_app.add_kanji_for_entry(k_ele, entry)
+
         # TODO: Walk and handle the kanji, reading, and sense elements
-        # kanjis = entry.findall('k_ele')
         # readings = entry.findall('r_ele')
         # senses = entry.findall('sense')
 
