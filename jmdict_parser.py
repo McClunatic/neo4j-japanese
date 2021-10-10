@@ -62,8 +62,8 @@ class NeoApp:
         """Adds an entry to the database."""
 
         # Add a node for the entry
-        cypher = "MERGE (n:Entry $props) RETURN id(n) as node_id"
-        result = tx.run(cypher, props={'ent_seq': ent_seq})
+        cypher = "MERGE (n:Entry {ent_seq: $ent_seq}) RETURN id(n) as node_id"
+        result = tx.run(cypher, ent_seq=ent_seq)
         record = result.single()
         return record['node_id']
 
