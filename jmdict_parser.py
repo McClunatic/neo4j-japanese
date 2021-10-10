@@ -82,7 +82,7 @@ def get_parser(argv: List[str]) -> argparse.ArgumentParser:
     parser.add_argument('xml_file', help='JMdict XML file to parse')
     parser.add_argument(
         '-n',
-        '--neo4j',
+        '--neo4j-uri',
         default='neo4j://localhost:7687',
         help='Neo4j URI string',
     )
@@ -106,7 +106,7 @@ def main(argv=sys.argv[1:]):
     root = tree.getroot()
 
     # Create a Neo4j GraphApp instance
-    neo_app = NeoApp(args.uri, args.user, args.pw)
+    neo_app = NeoApp(args.neo4j_uri, args.user, args.pw)
 
     # Traverse from root on <entry> elements and add nodes
     for entry in root.iter('entry'):
