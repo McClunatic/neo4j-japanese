@@ -23,6 +23,7 @@ class NeoApp:
 
         self.uri = uri
         self.user = user
+        print(f'Initializing driver, URI: {uri}')
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
 
         self.closed = False
@@ -31,6 +32,7 @@ class NeoApp:
         """Closes the driver connection."""
 
         if not self.closed:
+            print('Closing driver')
             self.closed = True
             self.driver.close()
 
