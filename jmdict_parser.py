@@ -3,6 +3,7 @@
 import argparse
 import contextlib
 import itertools
+import logging
 import sys
 import textwrap
 import datetime
@@ -27,7 +28,7 @@ class NeoApp:
 
         self.uri = uri
         self.user = user
-        print(f'Initializing driver, URI: {uri}')
+        logging.debug('Initializing driver, URI: %s', uri)
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
 
         self.closed = False
@@ -36,7 +37,7 @@ class NeoApp:
         """Closes the driver connection."""
 
         if not self.closed:
-            print('Closing driver')
+            logging.debug('Closing driver')
             self.closed = True
             self.driver.close()
 
@@ -55,7 +56,9 @@ class NeoApp:
         with contextlib.ExitStack() as stack:
             session = session or stack.enter_context(self.driver.session())
             session.run(cypher)
-            print('Added uniqueness constraint for ent_seq on Entry nodes')
+            logging.debug(
+                'Added uniqueness constraint for ent_seq on Entry nodes',
+            )
 
     def add_entry(
         self,
@@ -78,7 +81,11 @@ class NeoApp:
                 self._merge_and_return_entry,
                 ent_seq,
             )
-            print(f'Added entry with ent_seq {ent_seq}, ID: {node_id}')
+            logging.debug(
+                'Added entry with ent_seq %s, ID: %s',
+                ent_seq,
+                node_id,
+            )
             return node_id
 
     def add_kanji_for_entry(
@@ -114,7 +121,12 @@ class NeoApp:
                 ke_infs,
                 ke_pris,
             )
-            print(f'Added kanji {keb} to entry {ent_seq}, ID: {node_id}')
+            logging.debug(
+                'Added kanji %s to entry %s, ID: %s',
+                keb,
+                ent_seq,
+                node_id,
+            )
             return node_id
 
     def add_reading_for_entry(
@@ -160,9 +172,12 @@ class NeoApp:
                 re_infs,
                 re_pris,
             )
-            print(
-                f'Added reading {reb} to entry {ent_seq}, '
-                f'(ID, kanji): {node_id}, {kanji}',
+            logging.debug(
+                'Added reading %s to entry %s, (ID, kanji): %s, %s',
+                reb,
+                ent_seq,
+                node_id,
+                kanji,
             )
             return node_id
 
@@ -235,10 +250,6 @@ class NeoApp:
             re_infs=re_infs,
             re_pris=re_pris,
         )
-        # records = list(result)
-        # record = records[0]
-        # if len(records) > 1:
-        #     print(f'Extra records: {records[1:]}')
         record = result.single()
 
         # Add kanji reading relationships
@@ -281,6 +292,11 @@ def get_parser(argv: List[str]) -> argparse.ArgumentParser:
     )
     parser.add_argument('-u', '--user', default='neo4j', help='Neo4j user')
     parser.add_argument('-p', '--pw', default='japanese', help='Neo4j pw')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('-d', '--debug', action='store_true',
+                       help='Display debug log messages')
+    group.add_argument('-s', '--silent', action='store_true',
+                       help='Display only warning log messages')
 
     return parser
 
@@ -308,6 +324,10 @@ def main(argv=sys.argv[1:]):
     # Parse arguments
     args = get_parser(argv).parse_args()
 
+    # Configure logging
+    level = 'DEBUG' if args.debug else 'WARNING' if args.silent else 'INFO'
+    logging.basicConfig(format='%(levelname)s: %(message)s', level=level)
+
     # Read the specified XML file and parse the XML tree
     with open(args.xml_file) as xmlf:
         tree = etree.parse(xmlf)
@@ -324,8 +344,11 @@ def main(argv=sys.argv[1:]):
     # Traverse from root on <entry> elements and add nodes
     now = datetime.datetime.now()
     for num, batch in enumerate(grouper(root.iter('entry'), 1024)):
-        print(f'\n*** Processing batch: {num + 1}\n')
-        print(f'\n*** Elapsed time: batch {datetime.datetime.now() - now}\n')
+        logging.info(
+            'Processing batch: %s, elapsed time: %s',
+            num + 1,
+            datetime.datetime.now() - now,
+        )
         with neo_app.driver.session() as session:
             for entry in batch:
                 if entry is None:
@@ -341,7 +364,8 @@ def main(argv=sys.argv[1:]):
         # TODO: Walk and handle the kanji, reading, and sense elements
         # senses = entry.findall('sense')
 
-    print(f'Total elapsed time: {datetime.datetime.now() - now}')
+    logging.info('Total elapsed time: %s', datetime.datetime.now() - now)
+
     # Close the neo_app
     neo_app.close()
 
