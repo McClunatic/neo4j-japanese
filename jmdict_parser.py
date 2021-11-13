@@ -45,6 +45,18 @@ class NeoApp:
 
         self.close()
 
+    def create_entry_constraint(self, session: Optional[Session] = None):
+        """Creates a uniqueness constraint on ``ent_seq`` for Entry nodes."""
+
+        cypher = textwrap.dedent("""\
+            CREATE CONSTRAINT entry_ent_seq IF NOT EXISTS ON (n:Entry)
+            ASSERT n.ent_seq IS UNIQUE
+        """)
+        with contextlib.ExitStack() as stack:
+            session = session or stack.enter_context(self.driver.session())
+            session.run(cypher)
+            print('Added uniqueness constraint for ent_seq on Entry nodes')
+
     def add_entry(
         self,
         entry: etree.Element,
@@ -91,7 +103,7 @@ class NeoApp:
         ke_pris = [elem.text for elem in kanji.findall('ke_pri')]
 
         # Get the ent_seq of the containing entry
-        ent_seq = entry.find('ent_seq').text
+        ent_seq = int(entry.find('ent_seq').text)
 
         with contextlib.ExitStack() as stack:
             session = session or stack.enter_context(self.driver.session())
@@ -135,7 +147,7 @@ class NeoApp:
             re_restr = re_restr.text
 
         # Get the ent_seq of the containing entry
-        ent_seq = entry.find('ent_seq').text
+        ent_seq = int(entry.find('ent_seq').text)
 
         with contextlib.ExitStack() as stack:
             session = session or stack.enter_context(self.driver.session())
@@ -176,8 +188,8 @@ class NeoApp:
 
         # Add a node for the entry
         cypher = textwrap.dedent("""\
-            MERGE (e:Entry {ent_seq: $ent_seq})-[:CONTAINS]->
-                  (k:Kanji {keb: $keb})
+            MATCH (e:Entry {ent_seq: $ent_seq})
+            MERGE (e)-[:CONTAINS]->(k:Kanji {keb: $keb})
             ON CREATE
               SET k.ke_inf = $ke_infs
               SET k.ke_pri = $ke_pris
@@ -207,8 +219,8 @@ class NeoApp:
 
         # Add a node for the entry
         cypher = textwrap.dedent("""\
-            MERGE (e:Entry {ent_seq: $ent_seq})-[:CONTAINS]->
-                  (r:Reading {reb: $reb})
+            MATCH (e:Entry {ent_seq: $ent_seq})
+            MERGE (e)-[:CONTAINS]->(r:Reading {reb: $reb})
             ON CREATE
               SET r.re_inf = $re_infs
               SET r.re_pri = $re_pris
@@ -306,6 +318,9 @@ def main(argv=sys.argv[1:]):
     # Create a Neo4j GraphApp instance
     neo_app = NeoApp(args.neo4j_uri, args.user, args.pw)
 
+    # Set constraints for DB schema
+    neo_app.create_entry_constraint()
+
     # Traverse from root on <entry> elements and add nodes
     now = datetime.datetime.now()
     for num, batch in enumerate(grouper(root.iter('entry'), 1024)):
@@ -313,7 +328,7 @@ def main(argv=sys.argv[1:]):
         print(f'\n*** Elapsed time: batch {datetime.datetime.now() - now}\n')
         with neo_app.driver.session() as session:
             for entry in batch:
-                if not entry:
+                if entry is None:
                     break
                 neo_app.add_entry(entry, session)
 
