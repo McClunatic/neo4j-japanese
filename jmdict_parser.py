@@ -1,13 +1,16 @@
 """Parser for the JMdict_e_exampl.xml file."""
 
 import argparse
+import contextlib
+import itertools
 import sys
 import textwrap
+import datetime
 
-from typing import List, Union
+from typing import Iterable, List, Optional, Sequence, Union
 
 from lxml import etree
-from neo4j import GraphDatabase, Transaction
+from neo4j import GraphDatabase, Session, Transaction
 
 
 class NeoApp:
@@ -42,17 +45,23 @@ class NeoApp:
 
         self.close()
 
-    def add_entry(self, entry: etree.Element) -> int:
+    def add_entry(
+        self,
+        entry: etree.Element,
+        session: Optional[Session] = None,
+    ) -> int:
         """Adds an `entry` to the database.
 
         Args:
             entry: The entry element.
+            session: A driver session for the work.
         """
 
         # Get the ID (ent_seq)
         ent_seq = int(entry.find('ent_seq').text)
 
-        with self.driver.session() as session:
+        with contextlib.ExitStack() as stack:
+            session = session or stack.enter_context(self.driver.session())
             node_id = session.write_transaction(
                 self._merge_and_return_entry,
                 ent_seq,
@@ -64,12 +73,14 @@ class NeoApp:
         self,
         kanji: etree.Element,
         entry: etree.Element,
+        session: Optional[Session] = None,
     ) -> int:
         """Adds `kanji` for `entry` to the database.
 
         Args:
             kanji: The k_ele kanji element.
             entry: The entry element.
+            session: A driver session for the work.
         """
 
         # Get the word or phrase (keb)
@@ -82,7 +93,8 @@ class NeoApp:
         # Get the ent_seq of the containing entry
         ent_seq = entry.find('ent_seq').text
 
-        with self.driver.session() as session:
+        with contextlib.ExitStack() as stack:
+            session = session or stack.enter_context(self.driver.session())
             node_id = session.write_transaction(
                 self._merge_and_return_kanji,
                 ent_seq,
@@ -97,12 +109,14 @@ class NeoApp:
         self,
         reading: etree.Element,
         entry: etree.Element,
+        session: Optional[Session] = None,
     ) -> int:
         """Adds a `reading` for `entry` to the database.
 
         Args:
             reading: The r_ele reading element.
             entry: The entry element.
+            session: A driver session for the work.
         """
 
         # Get the word or phrase (reb)
@@ -123,7 +137,8 @@ class NeoApp:
         # Get the ent_seq of the containing entry
         ent_seq = entry.find('ent_seq').text
 
-        with self.driver.session() as session:
+        with contextlib.ExitStack() as stack:
+            session = session or stack.enter_context(self.driver.session())
             node_id, kanji = session.write_transaction(
                 self._merge_and_return_reading,
                 ent_seq,
@@ -161,11 +176,11 @@ class NeoApp:
 
         # Add a node for the entry
         cypher = textwrap.dedent("""\
-            MERGE (e:Entry {ent_seq: $ent_seq})
-            MERGE (k:Kanji {keb: $keb})
-            SET k.ke_inf = $ke_infs
-            SET k.ke_pri = $ke_pris
-            MERGE (e)-[:CONTAINS]->(k)
+            MERGE (e:Entry {ent_seq: $ent_seq})-[:CONTAINS]->
+                  (k:Kanji {keb: $keb})
+            ON CREATE
+              SET k.ke_inf = $ke_infs
+              SET k.ke_pri = $ke_pris
             RETURN id(k) AS node_id
         """)
         result = tx.run(
@@ -192,12 +207,12 @@ class NeoApp:
 
         # Add a node for the entry
         cypher = textwrap.dedent("""\
-            MERGE (e:Entry {ent_seq: $ent_seq})
-            MERGE (r:Reading {reb: $reb})
-            SET r.re_inf = $re_infs
-            SET r.re_pri = $re_pris
-            SET r.re_nokanji = $re_nokanji
-            MERGE (e)-[:CONTAINS]->(r)
+            MERGE (e:Entry {ent_seq: $ent_seq})-[:CONTAINS]->
+                  (r:Reading {reb: $reb})
+            ON CREATE
+              SET r.re_inf = $re_infs
+              SET r.re_pri = $re_pris
+              SET r.re_nokanji = $re_nokanji
             RETURN id(r) AS node_id
         """)
         result = tx.run(
@@ -208,6 +223,10 @@ class NeoApp:
             re_infs=re_infs,
             re_pris=re_pris,
         )
+        # records = list(result)
+        # record = records[0]
+        # if len(records) > 1:
+        #     print(f'Extra records: {records[1:]}')
         record = result.single()
 
         # Add kanji reading relationships
@@ -216,7 +235,8 @@ class NeoApp:
             OPTIONAL MATCH (e)-[:CONTAINS]->(k:Kanji)
             WITH e, k
             WHERE k IS NOT NULL AND k.keb = coalesce($re_restr, k.keb)
-            MERGE (k)-[r:HAS_READING]->(:Reading {reb: $reb})
+            MATCH (n:Reading {reb: $reb})<-[:CONTAINS]-(e)
+            MERGE (k)-[r:HAS_READING]->(n)
             RETURN id(k) AS node_id
         """)
         result = tx.run(
@@ -225,7 +245,7 @@ class NeoApp:
             reb=reb,
             re_restr=re_restr,
         )
-        values = [record.values() for record in result]
+        values = [record.value() for record in result]
         return record['node_id'], values
 
 
@@ -253,6 +273,23 @@ def get_parser(argv: List[str]) -> argparse.ArgumentParser:
     return parser
 
 
+def grouper(
+    iterable: Iterable[etree.Element],
+    n: int,
+) -> Iterable[Sequence[etree.Element]]:
+    """Groups `iterable` into sequences of length `n`.
+
+    Args:
+        iterable: The object to divide into groups.
+        n: The group size.
+
+    Returns:
+        Iterable of sequences of length `n`.
+    """
+    args = [iter(iterable)] * n
+    return itertools.zip_longest(*args)
+
+
 def main(argv=sys.argv[1:]):
     """Does it all."""
 
@@ -270,18 +307,26 @@ def main(argv=sys.argv[1:]):
     neo_app = NeoApp(args.neo4j_uri, args.user, args.pw)
 
     # Traverse from root on <entry> elements and add nodes
-    for entry in root.iter('entry'):
-        neo_app.add_entry(entry)
+    now = datetime.datetime.now()
+    for num, batch in enumerate(grouper(root.iter('entry'), 1024)):
+        print(f'\n*** Processing batch: {num + 1}\n')
+        print(f'\n*** Elapsed time: batch {datetime.datetime.now() - now}\n')
+        with neo_app.driver.session() as session:
+            for entry in batch:
+                if not entry:
+                    break
+                neo_app.add_entry(entry, session)
 
-        for k_ele in entry.findall('k_ele'):
-            neo_app.add_kanji_for_entry(k_ele, entry)
+                for k_ele in entry.findall('k_ele'):
+                    neo_app.add_kanji_for_entry(k_ele, entry, session)
 
-        for r_ele in entry.findall('r_ele'):
-            neo_app.add_reading_for_entry(r_ele, entry)
+                for r_ele in entry.findall('r_ele'):
+                    neo_app.add_reading_for_entry(r_ele, entry, session)
 
         # TODO: Walk and handle the kanji, reading, and sense elements
         # senses = entry.findall('sense')
 
+    print(f'Total elapsed time: {datetime.datetime.now() - now}')
     # Close the neo_app
     neo_app.close()
 
