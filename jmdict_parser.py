@@ -181,6 +181,87 @@ class NeoApp:
             )
             return node_id
 
+    def add_sense_for_entry(
+        self,
+        idx: int,
+        sense: etree.Element,
+        entry: etree.Element,
+        session: Optional[Session] = None,
+    ) -> int:
+        """Adds a `sense` for `entry` to the database.
+
+        Args:
+            idx: Index of sense in parent entry element.
+            sense: The sense element.
+            entry: The entry element.
+            session: A driver session for the work.
+        """
+
+        # TODO: pass idx+1 to helper function
+
+        # Gather kanji or readings this sense is restricted to
+        stagks = [elem.text for elem in sense.findall('stagk')]
+        stagrs = [elem.text for elem in sense.findall('stagr')]
+
+        # Gather references to related entries
+        # TODO: parse into keb/reb/sense number
+        xrefs = [elem.text for elem in sense.findall('xref')]
+
+        # Gather antonym references to related entries
+        # TODO: parse as either keb or reb
+        ants = [elem.text for elem in sense.findall('ant')]
+
+        # Gather parts of speech, fields of application, misc information
+        # TODO: convert from codes to readable values OR
+        #       create nodes that represent each of these to relate to
+        poss = [elem.text for elem in sense.findall('pos')]
+        fields = [elem.text for elem in sense.findall('field')]
+        miscs = [elem.text for elem in sense.findall('misc')]
+
+        # Gather other sense information
+        s_infs = [elem.text for elem in sense.findall('s_inf')]
+
+        # TODO: get lsource and consider dict: attr(xml:lang) -> .text
+        # TODO: get gloss, gloss may have a g_type that needs to be stored
+        #       noting that some gloss have no g_type
+        #       an idea: {g_type: [list of .text]}
+
+        # Get the ent_seq of the containing entry
+        ent_seq = int(entry.find('ent_seq').text)
+
+        # Create the sense node and get its node ID
+        with contextlib.ExitStack() as stack:
+            session_ = session or stack.enter_context(self.driver.session())
+            node_id, kanji = session_.write_transaction(
+                lambda x: None,
+            )
+            logging.debug(
+                'Added sense %s to entry %s',
+                sense,
+                ent_seq,
+            )
+
+        # Add the example elements for this sense
+        for example in sense.findall('example'):
+            self.add_example_for_sense(example, sense, session)
+
+    def add_example_for_sense(
+        self,
+        example: etree.Element,
+        sense: etree.Element,
+        session: Optional[Session] = None,
+    ) -> int:
+        """Adds a `sense` for `entry` to the database.
+
+        Args:
+            example: The example element.
+            sense: The sense element.
+            session: A driver session for the work.
+        """
+
+        # TODO: implement this
+        pass
+
     @staticmethod
     def _merge_and_return_entry(tx: Transaction, ent_seq: int) -> int:
         """Merges and returns entry `ent_seq` in the database."""
@@ -360,6 +441,9 @@ def main(argv=sys.argv[1:]):
 
                 for r_ele in entry.findall('r_ele'):
                     neo_app.add_reading_for_entry(r_ele, entry, session)
+
+                for idx, sense in enumerate(entry.findall('sense')):
+                    neo_app.add_sense_for_entry(idx, sense, entry, session)
 
         # TODO: Walk and handle the kanji, reading, and sense elements
         # senses = entry.findall('sense')
