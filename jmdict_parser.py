@@ -197,9 +197,11 @@ class NeoApp:
             session: A driver session for the work.
         """
 
-        # TODO: pass idx+1 to helper function
+        # Set rank order of sense within entry
+        rank = idx + 1
 
         # Gather kanji or readings this sense is restricted to
+        # TODO: use these as keb and reb
         stagks = [elem.text for elem in sense.findall('stagk')]
         stagrs = [elem.text for elem in sense.findall('stagr')]
 
@@ -214,17 +216,19 @@ class NeoApp:
         # Gather parts of speech, fields of application, misc information
         # TODO: convert from codes to readable values OR
         #       create nodes that represent each of these to relate to
-        poss = [elem.text for elem in sense.findall('pos')]
+        pos = [elem.text for elem in sense.findall('pos')]
         fields = [elem.text for elem in sense.findall('field')]
         miscs = [elem.text for elem in sense.findall('misc')]
 
         # Gather other sense information
         s_infs = [elem.text for elem in sense.findall('s_inf')]
 
-        # TODO: get lsource and consider dict: attr(xml:lang) -> .text
-        # TODO: get gloss, gloss may have a g_type that needs to be stored
-        #       noting that some gloss have no g_type
-        #       an idea: {g_type: [list of .text]}
+        # Gather various gloss lists by g_type
+        defns = [elem.text for elem in sense.xpath('gloss[not(@g_type)]')]
+        expls = [elem.text for elem in sense.xpath('gloss[@g_type="expl"]')]
+        figs = [elem.text for elem in sense.xpath('gloss[@g_type="fig"]')]
+        lits = [elem.text for elem in sense.xpath('gloss[@g_type="lit"]')]
+        tms = [elem.text for elem in sense.xpath('gloss[@g_type="tm"]')]
 
         # Get the ent_seq of the containing entry
         ent_seq = int(entry.find('ent_seq').text)
@@ -232,8 +236,23 @@ class NeoApp:
         # Create the sense node and get its node ID
         with contextlib.ExitStack() as stack:
             session_ = session or stack.enter_context(self.driver.session())
-            node_id, kanji = session_.write_transaction(
-                lambda x: None,
+            node_id = session_.write_transaction(
+                self._merge_and_return_sense,
+                ent_seq,
+                rank,
+                stagks,
+                stagrs,
+                xrefs,
+                ants,
+                pos,
+                fields,
+                miscs,
+                s_infs,
+                defns,
+                expls,
+                figs,
+                lits,
+                tms,
             )
             logging.debug(
                 'Added sense %s to entry %s',
@@ -241,9 +260,34 @@ class NeoApp:
                 ent_seq,
             )
 
+        # TODO: get lsource and consider dict: attr(xml:lang) -> .text
+        # Add the lsource elements for this sense
+        # (lsource will be :LOANED_FROM {type, wasei} :Language {code: eng})
+        for lsource in sense.findall('lsource'):
+            self.add_example_for_sense(lsource, sense, session)
+
         # Add the example elements for this sense
         for example in sense.findall('example'):
             self.add_example_for_sense(example, sense, session)
+
+        return node_id
+
+    def add_lsource_for_sense(
+        self,
+        lsource: etree.Element,
+        sense: etree.Element,
+        session: Optional[Session] = None,
+    ) -> int:
+        """Adds an `lsource` for `sense` to the database.
+
+        Args:
+            lsource: The lsource element.
+            sense: The sense element.
+            session: A driver session for the work.
+        """
+
+        # TODO: implement this
+        pass
 
     def add_example_for_sense(
         self,
@@ -251,7 +295,7 @@ class NeoApp:
         sense: etree.Element,
         session: Optional[Session] = None,
     ) -> int:
-        """Adds a `sense` for `entry` to the database.
+        """Adds an `example` for `sense` to the database.
 
         Args:
             example: The example element.
@@ -351,6 +395,60 @@ class NeoApp:
         )
         values = [record.value() for record in result]
         return record['node_id'], values
+
+    @staticmethod
+    def _merge_and_return_sense(
+        tx: Transaction,
+        ent_seq: int,
+        rank: int,
+        stagks: List[str],
+        stagrs: List[str],
+        xrefs,
+        ants: List[str],
+        pos: List[str],
+        fields: List[str],
+        miscs: List[str],
+        s_infs: List[str],
+        defns: List[str],
+        expls: List[str],
+        figs: List[str],
+        lits: List[str],
+        tms: List[str],
+    ) -> int:
+        """Merges and returns sense related to entry `ent_seq`."""
+
+        # Add a node for the entry
+        cypher = textwrap.dedent("""\
+            MATCH (e:Entry {ent_seq: $ent_seq})
+            MERGE (e)-[:CONTAINS]->(s:Sense {ent_seq: $ent_seq, rank: $rank})
+            ON CREATE
+              SET s.pos = $pos
+              SET s.field = $fields
+              SET s.misc = $miscs
+              SET s.s_inf = $s_infs
+              SET s.defn = $defns
+              SET s.expl = $expls
+              SET s.fig = $figs
+              SET s.lit = $lits
+              SET s.tm = $tms
+            RETURN id(s) AS node_id
+        """)
+        result = tx.run(
+            cypher,
+            ent_seq=ent_seq,
+            rank=rank,
+            pos=pos,
+            fields=fields,
+            miscs=miscs,
+            s_infs=s_infs,
+            defns=defns,
+            expls=expls,
+            figs=figs,
+            lits=lits,
+            tms=tms,
+        )
+        record = result.single()
+        return record['node_id']
 
 
 def get_parser(argv: List[str]) -> argparse.ArgumentParser:
