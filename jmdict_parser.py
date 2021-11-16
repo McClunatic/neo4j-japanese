@@ -216,14 +216,19 @@ class NeoApp:
 
         with contextlib.ExitStack() as stack:
             session = session or stack.enter_context(self.driver.session())
-            node_id, kanji = session.write_transaction(
+            node_id = session.write_transaction(
                 self._merge_and_return_reading,
                 ent_seq,
                 reb,
                 re_nokanji,
-                re_restr,
                 re_infs,
                 re_pris,
+            )
+            kanji = session.write_transaction(
+                self._merge_kanji_reading_relationships,
+                ent_seq,
+                reb,
+                re_restr,
             )
             logging.debug(
                 'Added reading %s to entry %s, (ID, kanji): %s, %s',
@@ -412,7 +417,6 @@ class NeoApp:
         ent_seq: int,
         reb: str,
         re_nokanji: bool,
-        re_restr: Union[str, None],
         re_infs: List[str],
         re_pris: List[str],
     ) -> int:
@@ -437,6 +441,16 @@ class NeoApp:
             re_pris=re_pris,
         )
         record = result.single()
+        return record['node_id']
+
+    @staticmethod
+    def _merge_kanji_reading_relationships(
+        tx: Transaction,
+        ent_seq: int,
+        reb: str,
+        re_restr: Union[str, None],
+    ) -> List[int]:
+        """Merges kanji relationships for `reb` related to entry `ent_seq`."""
 
         # Add kanji reading relationships
         cypher = textwrap.dedent("""\
@@ -455,7 +469,7 @@ class NeoApp:
             re_restr=re_restr,
         )
         values = [record.value() for record in result]
-        return record['node_id'], values
+        return values
 
     @staticmethod
     def _merge_and_return_sense(
