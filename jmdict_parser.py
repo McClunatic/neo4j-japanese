@@ -300,10 +300,6 @@ class NeoApp:
                 self._merge_and_return_sense,
                 ent_seq,
                 rank,
-                stagks,
-                stagrs,
-                xrefs,
-                ants,
                 pos,
                 fields,
                 miscs,
@@ -314,25 +310,68 @@ class NeoApp:
                 lits,
                 tms,
             )
+            # TODO: relate stagks for sense
             logging.debug(
                 'Added sense %s to entry %s',
                 sense,
                 ent_seq,
             )
+            # TODO: implement helper function
+            kanji = session_.write_transaction(
+                self._merge_kanji_sense_relationships,
+                ent_seq,
+                sense_id,
+                stagks,
+            )
+            logging.debug(
+                'Added sense %s relationships to kanji %s',
+                sense,
+                kanji,
+            )
+            # TODO: implement helper function
+            readings = session_.write_transaction(
+                self._merge_reading_sense_relationships,
+                ent_seq,
+                sense_id,
+                stagrs,
+            )
+            logging.debug(
+                'Added sense %s relationships to readings %s',
+                sense,
+                readings,
+            )
+            # TODO: implement helper function
+            xref_ids = session_.write_transaction(
+                self._merge_ref_sense_relationships,
+                ent_seq,
+                sense_id,
+                xrefs,
+            )
+            logging.debug(
+                'Related sense %s to external references %s',
+                sense,
+                xref_ids,
+            )
+            ant_ids = session_.write_transaction(
+                self._merge_ref_sense_relationships,
+                ent_seq,
+                sense_id,
+                ants,
+                relationship='ANTONYM_OF'
+            )
+            logging.debug(
+                'Related sense %s to antonym references %s',
+                sense,
+                ant_ids,
+            )
 
-        # TODO: relate stagks for sense
-        # TODO: relate stagrs for sense
-
-        # TODO: relate xrefs to sense
-        # TODO: relate ants to sense
-
-        # TODO: get lsource and consider dict: attr(xml:lang) -> .text
+        # TODO: add lsource and consider dict: attr(xml:lang) -> .text
         # Add the lsource elements for this sense
         # (lsource will be :LOANED_FROM {type, wasei} :Language {code: eng})
         for lsource in sense.findall('lsource'):
             self.add_example_for_sense(lsource, sense, session)
 
-        # Add the example elements for this sense
+        # TODO: add example elements for this sense
         for example in sense.findall('example'):
             self.add_example_for_sense(example, sense, session)
 
