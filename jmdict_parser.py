@@ -14,6 +14,59 @@ from lxml import etree
 from neo4j import GraphDatabase, Session, Transaction
 
 
+DOT = '\xb7'
+KANA_DOT = '\u30fb'
+
+HIRAGANA = ('\u3040', '\u309f')
+KATAKANA = ('\u30a0', '\u30ff')
+KATAKANA_PHONETIC_EXT = ('\u31f0', '\u31ff')
+
+
+def is_kana(string: str) -> bool:
+    """Returns ``True`` iff every character of `string` is a kana.
+
+    Args:
+        string: The string to assess.
+
+    Returns:
+        ``True`` if the string is all kana, ``False`` otherwise.
+    """
+
+    for c in string:
+        result = False
+        for lo, hi in (HIRAGANA, KATAKANA, KATAKANA_PHONETIC_EXT):
+            result = result or lo <= c <= hi
+        if not result:
+            return result
+
+    return True
+
+
+def parse_xref(xref: str) -> dict:
+    """Parses `xref` into a `keb`, `reb`, and `sense` rank.
+
+    Args:
+        xref: The xref to parse.
+
+    Returns:
+        Dictionary with as many as 3 keys:
+            - `keb`: The kanji cross-reference.
+            - `reb`: The reading cross-reference.
+            - `sense`: The sense rank number to cross-reference.
+    """
+
+    result = {}
+    for token in xref.split(KANA_DOT):
+        if token.isdigit():
+            result['sense'] = int(token)
+        elif is_kana(token):
+            result['reb'] = token
+        else:
+            result['keb'] = token
+
+    return result
+
+
 class NeoApp:
     """Neo4j graph database application.
 
@@ -201,17 +254,19 @@ class NeoApp:
         rank = idx + 1
 
         # Gather kanji or readings this sense is restricted to
-        # TODO: use these as keb and reb
         stagks = [elem.text for elem in sense.findall('stagk')]
         stagrs = [elem.text for elem in sense.findall('stagr')]
 
+        # If there are no restrictions, stagk/rs should refer to all k/rebs
+        if not stagks:
+            stagks = [elem.text for elem in entry.findall('keb')]
+            stagrs = [elem.text for elem in entry.findall('reb')]
+
         # Gather references to related entries
-        # TODO: parse into keb/reb/sense number
-        xrefs = [elem.text for elem in sense.findall('xref')]
+        xrefs = [parse_xref(elem.text) for elem in sense.findall('xref')]
 
         # Gather antonym references to related entries
-        # TODO: parse as either keb or reb
-        ants = [elem.text for elem in sense.findall('ant')]
+        ants = [parse_xref(elem.text) for elem in sense.findall('ant')]
 
         # Gather parts of speech, fields of application, misc information
         # TODO: convert from codes to readable values OR
@@ -236,7 +291,7 @@ class NeoApp:
         # Create the sense node and get its node ID
         with contextlib.ExitStack() as stack:
             session_ = session or stack.enter_context(self.driver.session())
-            node_id = session_.write_transaction(
+            sense_id = session_.write_transaction(
                 self._merge_and_return_sense,
                 ent_seq,
                 rank,
@@ -260,6 +315,12 @@ class NeoApp:
                 ent_seq,
             )
 
+        # TODO: relate stagks for sense
+        # TODO: relate stagrs for sense
+
+        # TODO: relate xrefs to sense
+        # TODO: relate ants to sense
+
         # TODO: get lsource and consider dict: attr(xml:lang) -> .text
         # Add the lsource elements for this sense
         # (lsource will be :LOANED_FROM {type, wasei} :Language {code: eng})
@@ -270,7 +331,7 @@ class NeoApp:
         for example in sense.findall('example'):
             self.add_example_for_sense(example, sense, session)
 
-        return node_id
+        return sense_id
 
     def add_lsource_for_sense(
         self,
@@ -403,8 +464,8 @@ class NeoApp:
         rank: int,
         stagks: List[str],
         stagrs: List[str],
-        xrefs,
-        ants: List[str],
+        xrefs: List[dict],
+        ants: List[dict],
         pos: List[str],
         fields: List[str],
         miscs: List[str],
@@ -448,6 +509,12 @@ class NeoApp:
             tms=tms,
         )
         record = result.single()
+
+        # stagks
+        # stagrs
+        # xrefs
+        # ants
+
         return record['node_id']
 
 
@@ -542,9 +609,6 @@ def main(argv=sys.argv[1:]):
 
                 for idx, sense in enumerate(entry.findall('sense')):
                     neo_app.add_sense_for_entry(idx, sense, entry, session)
-
-        # TODO: Walk and handle the kanji, reading, and sense elements
-        # senses = entry.findall('sense')
 
     logging.info('Total elapsed time: %s', datetime.datetime.now() - now)
 
