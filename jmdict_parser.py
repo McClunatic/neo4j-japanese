@@ -8,7 +8,7 @@ import sys
 import textwrap
 import datetime
 
-from typing import Iterable, List, Optional, Sequence, Union
+from typing import Iterable, List, Optional, Sequence, Tuple, Union
 
 from lxml import etree
 from neo4j import GraphDatabase, Session, Transaction
@@ -380,19 +380,80 @@ class NeoApp:
     def add_lsource_for_sense(
         self,
         lsource: etree.Element,
-        sense: etree.Element,
+        sense_id: int,
         session: Optional[Session] = None,
     ) -> int:
-        """Adds an `lsource` for `sense` to the database.
+        """Adds an `lsource` related to sense node `sense_id` in the database.
 
         Args:
             lsource: The lsource element.
-            sense: The sense element.
+            sense_id: The associated sense node ID.
             session: A driver session for the work.
+
+        Returns:
+            Tuple of:
+             - Merged Language node.
+             - Merged Sense->Language relationship.
         """
 
-        # TODO: implement this
-        pass
+        # Standard XML namespace
+        ns = 'http://www.w3.org/XML/1998/namespace'
+
+        # Parse lang, and check for ls_type and ls_wasei
+        lang = lsource.attrib.get(f'{{{ns}}}lang', 'eng')
+        partial = lsource.attrib.get('ls_type', 'full') == 'partial'
+        wasei = lsource.attrib.get('ls_wasei', 'n') == 'y'
+
+        # Get the source language word or phrase
+        phrase = lsource.text
+
+        with contextlib.ExitStack() as stack:
+            session_ = session or stack.enter_context(self.driver.session())
+            lsource_id, relationship_id = session_.write_transaction(
+                self._merge_and_return_lsource,
+                sense_id,
+                lang,
+                phrase,
+                partial,
+                wasei,
+            )
+            logging.debug(
+                'Added lsource %s for sense with ID %s',
+                lang,
+                sense_id,
+            )
+            return lsource_id, relationship_id
+
+    @staticmethod
+    def _merge_and_return_lsource(
+        tx: Transaction,
+        sense_id: int,
+        phrase: str,
+        partial: bool,
+        wasei: bool,
+    ) -> Tuple[int, int]:
+        """Merges and returns lsource for sense `sense_id` in the database."""
+
+        # Add a node for the entry
+        cypher = textwrap.dedent("""\
+            MATCH (s:Sense)
+            WHERE id(s) = $sense_id
+            MERGE (s)-[r:SOURCED_FROM]->(l:Language {lang: $lang})
+            ON CREATE
+              SET r.phrase = $phrase
+              SET r.partial = $partial
+              SET r.wasei = $wasei
+            RETURN id(l) AS node_id, id(r) as relationship_id
+        """)
+        result = tx.run(
+            cypher,
+            sense_id=sense_id,
+            phrase=phrase,
+            partial=partial,
+            wasei=wasei,
+        )
+        record = result.single()
+        return record['node_id'], record['relationship_id']
 
     def add_example_for_sense(
         self,
