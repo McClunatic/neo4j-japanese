@@ -553,6 +553,21 @@ class NeoApp:
         record = result.single()
         return record['node_id'], record['relationship_id']
 
+    def add_ref(
+        self,
+        ref: etree.Element,
+        session: Optional[Session] = None,
+    ) -> int:
+        """Adds an `ref` (either ``xref`` or ``ant`` to the database.
+
+        Args:
+            ref: The ref element.
+            session: A driver session for the work.
+        """
+
+        # TODO: implement this
+        pass
+
     @staticmethod
     def _merge_and_return_entry(tx: Transaction, ent_seq: int) -> int:
         """Merges and returns entry `ent_seq` in the database."""
@@ -839,7 +854,7 @@ def main(argv=sys.argv[1:]):
     now = datetime.datetime.now()
     for num, batch in enumerate(grouper(root.iter('entry'), 1024)):
         logging.info(
-            'Processing batch: %s, elapsed time: %s',
+            'Processing entry batch: %s, elapsed time: %s',
             num + 1,
             datetime.datetime.now() - now,
         )
@@ -868,6 +883,19 @@ def main(argv=sys.argv[1:]):
 
                     for example in sense.findall('example'):
                         neo_app.add_example_for_sense(example, sid, session)
+
+    xref_or_ant = './/*[self::xref or self::ant]'
+    for num, batch in enumerate(grouper(root.xpath(xref_or_ant), 1024)):
+        logging.info(
+            'Processing ref batch: %s, elapsed time: %s',
+            num + 1,
+            datetime.datetime.now() - now,
+        )
+        with neo_app.driver.session() as session:
+            for ref in batch:
+                if ref is None:
+                    break
+                neo_app.add_ref(ref, session)
 
     logging.info('Total elapsed time: %s', datetime.datetime.now() - now)
 
