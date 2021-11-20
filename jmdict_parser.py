@@ -169,6 +169,16 @@ class NeoApp:
             )
             return node_id
 
+    @staticmethod
+    def _merge_and_return_entry(tx: Transaction, ent_seq: int) -> int:
+        """Merges and returns entry `ent_seq` in the database."""
+
+        # Add a node for the entry
+        cypher = "MERGE (n:Entry {ent_seq: $ent_seq}) RETURN id(n) AS node_id"
+        result = tx.run(cypher, ent_seq=ent_seq)
+        record = result.single()
+        return record['node_id']
+
     def add_kanji_for_entry(
         self,
         kanji: etree.Element,
@@ -209,6 +219,35 @@ class NeoApp:
                 node_id,
             )
             return node_id
+
+    @staticmethod
+    def _merge_and_return_kanji(
+        tx: Transaction,
+        ent_seq: int,
+        keb: str,
+        ke_infs: List[str],
+        ke_pris: List[str],
+    ) -> int:
+        """Merges and returns kanji `keb` related to entry `ent_seq`."""
+
+        # Add a node for the entry
+        cypher = textwrap.dedent("""\
+            MATCH (e:Entry {ent_seq: $ent_seq})
+            MERGE (e)-[:CONTAINS]->(k:Kanji {keb: $keb})
+            ON CREATE
+              SET k.ke_inf = $ke_infs
+              SET k.ke_pri = $ke_pris
+            RETURN id(k) AS node_id
+        """)
+        result = tx.run(
+            cypher,
+            ent_seq=ent_seq,
+            keb=keb,
+            ke_infs=ke_infs,
+            ke_pris=ke_pris,
+        )
+        record = result.single()
+        return record['node_id']
 
     def add_reading_for_entry(
         self,
@@ -266,6 +305,66 @@ class NeoApp:
                 kanji,
             )
             return node_id
+
+    @staticmethod
+    def _merge_and_return_reading(
+        tx: Transaction,
+        ent_seq: int,
+        reb: str,
+        re_nokanji: bool,
+        re_infs: List[str],
+        re_pris: List[str],
+    ) -> int:
+        """Merges and returns reading `reb` related to entry `ent_seq`."""
+
+        # Add a node for the entry
+        cypher = textwrap.dedent("""\
+            MATCH (e:Entry {ent_seq: $ent_seq})
+            MERGE (e)-[:CONTAINS]->(r:Reading {reb: $reb})
+            ON CREATE
+              SET r.re_inf = $re_infs
+              SET r.re_pri = $re_pris
+              SET r.re_nokanji = $re_nokanji
+            RETURN id(r) AS node_id
+        """)
+        result = tx.run(
+            cypher,
+            ent_seq=ent_seq,
+            reb=reb,
+            re_nokanji=re_nokanji,
+            re_infs=re_infs,
+            re_pris=re_pris,
+        )
+        record = result.single()
+        return record['node_id']
+
+    @staticmethod
+    def _merge_kanji_reading_relationships(
+        tx: Transaction,
+        ent_seq: int,
+        reb: str,
+        re_restr: Union[str, None],
+    ) -> List[int]:
+        """Merges kanji relationships for `reb` related to entry `ent_seq`."""
+
+        # Add kanji reading relationships
+        cypher = textwrap.dedent("""\
+            MATCH (e:Entry {ent_seq: $ent_seq})
+            OPTIONAL MATCH (e)-[:CONTAINS]->(k:Kanji)
+            WITH e, k
+            WHERE k IS NOT NULL AND k.keb = coalesce($re_restr, k.keb)
+            MATCH (n:Reading {reb: $reb})<-[:CONTAINS]-(e)
+            MERGE (k)-[r:HAS_READING]->(n)
+            RETURN id(k) AS node_id
+        """)
+        result = tx.run(
+            cypher,
+            ent_seq=ent_seq,
+            reb=reb,
+            re_restr=re_restr,
+        )
+        values = [record.value() for record in result]
+        return values
 
     def add_sense_for_entry(
         self,
@@ -360,6 +459,118 @@ class NeoApp:
             )
 
         return sense_id
+
+    @staticmethod
+    def _merge_and_return_sense(
+        tx: Transaction,
+        ent_seq: int,
+        rank: int,
+        stagks: List[str],
+        stagrs: List[str],
+        xrefs: List[dict],
+        ants: List[dict],
+        pos: List[str],
+        fields: List[str],
+        miscs: List[str],
+        s_infs: List[str],
+        defns: List[str],
+        expls: List[str],
+        figs: List[str],
+        lits: List[str],
+        tms: List[str],
+    ) -> int:
+        """Merges and returns sense related to entry `ent_seq`."""
+
+        # Add a node for the entry
+        cypher = textwrap.dedent("""\
+            MATCH (e:Entry {ent_seq: $ent_seq})
+            MERGE (e)-[:CONTAINS]->(s:Sense {ent_seq: $ent_seq, rank: $rank})
+            ON CREATE
+              SET s.pos = $pos
+              SET s.field = $fields
+              SET s.misc = $miscs
+              SET s.s_inf = $s_infs
+              SET s.defn = $defns
+              SET s.expl = $expls
+              SET s.fig = $figs
+              SET s.lit = $lits
+              SET s.tm = $tms
+            RETURN id(s) AS node_id
+        """)
+        result = tx.run(
+            cypher,
+            ent_seq=ent_seq,
+            rank=rank,
+            pos=pos,
+            fields=fields,
+            miscs=miscs,
+            s_infs=s_infs,
+            defns=defns,
+            expls=expls,
+            figs=figs,
+            lits=lits,
+            tms=tms,
+        )
+        record = result.single()
+
+        # stagks
+        # stagrs
+        # xrefs
+        # ants
+
+        return record['node_id']
+
+    @staticmethod
+    def _merge_kanji_sense_relationships(
+        tx: Transaction,
+        ent_seq: int,
+        sense_id: int,
+        stagks: List[str],
+    ) -> List[int]:
+        """Merges kanji->sense relationships under `ent_seq`."""
+
+        # Add a node for the entry
+        cypher = textwrap.dedent("""\
+            MATCH (e:Entry {ent_seq: $ent_seq})
+            UNWIND $stagks as keb
+            MATCH (s:Sense)<-[:CONTAINS]-(e)-[:CONTAINS]->
+                  (k:Kanji {keb: keb})
+            MERGE (k)-[r:HAS_SENSE]->(s)
+            RETURN id(r) AS node_id
+        """)
+        result = tx.run(
+            cypher,
+            ent_seq=ent_seq,
+            sense_id=sense_id,
+            stagks=stagks,
+        )
+        return result.value()
+
+    @staticmethod
+    def _merge_reading_sense_relationships(
+        tx: Transaction,
+        ent_seq: int,
+        sense_id: int,
+        stagrs: List[str],
+    ) -> List[int]:
+        """Merges reading->sense relationships under `ent_seq`."""
+
+        # Add a node for the entry
+        cypher = textwrap.dedent("""\
+            MATCH (e:Entry {ent_seq: $ent_seq})
+            UNWIND $stagrs as reb
+            MATCH (s:Sense)<-[:CONTAINS]-(e)-[:CONTAINS]->
+                  (k:Reading {reb: reb})
+            MERGE (k)-[r:HAS_SENSE]->(s)
+            RETURN id(r) AS node_id
+        """)
+        result = tx.run(
+            cypher,
+            ent_seq=ent_seq,
+            sense_id=sense_id,
+            stagrs=stagrs,
+        )
+        return result.value()
 
     def add_lsource_for_sense(
         self,
@@ -574,217 +785,6 @@ class NeoApp:
 
         # TODO: implement this
         pass
-
-    @staticmethod
-    def _merge_and_return_entry(tx: Transaction, ent_seq: int) -> int:
-        """Merges and returns entry `ent_seq` in the database."""
-
-        # Add a node for the entry
-        cypher = "MERGE (n:Entry {ent_seq: $ent_seq}) RETURN id(n) AS node_id"
-        result = tx.run(cypher, ent_seq=ent_seq)
-        record = result.single()
-        return record['node_id']
-
-    @staticmethod
-    def _merge_and_return_kanji(
-        tx: Transaction,
-        ent_seq: int,
-        keb: str,
-        ke_infs: List[str],
-        ke_pris: List[str],
-    ) -> int:
-        """Merges and returns kanji `keb` related to entry `ent_seq`."""
-
-        # Add a node for the entry
-        cypher = textwrap.dedent("""\
-            MATCH (e:Entry {ent_seq: $ent_seq})
-            MERGE (e)-[:CONTAINS]->(k:Kanji {keb: $keb})
-            ON CREATE
-              SET k.ke_inf = $ke_infs
-              SET k.ke_pri = $ke_pris
-            RETURN id(k) AS node_id
-        """)
-        result = tx.run(
-            cypher,
-            ent_seq=ent_seq,
-            keb=keb,
-            ke_infs=ke_infs,
-            ke_pris=ke_pris,
-        )
-        record = result.single()
-        return record['node_id']
-
-    @staticmethod
-    def _merge_and_return_reading(
-        tx: Transaction,
-        ent_seq: int,
-        reb: str,
-        re_nokanji: bool,
-        re_infs: List[str],
-        re_pris: List[str],
-    ) -> int:
-        """Merges and returns reading `reb` related to entry `ent_seq`."""
-
-        # Add a node for the entry
-        cypher = textwrap.dedent("""\
-            MATCH (e:Entry {ent_seq: $ent_seq})
-            MERGE (e)-[:CONTAINS]->(r:Reading {reb: $reb})
-            ON CREATE
-              SET r.re_inf = $re_infs
-              SET r.re_pri = $re_pris
-              SET r.re_nokanji = $re_nokanji
-            RETURN id(r) AS node_id
-        """)
-        result = tx.run(
-            cypher,
-            ent_seq=ent_seq,
-            reb=reb,
-            re_nokanji=re_nokanji,
-            re_infs=re_infs,
-            re_pris=re_pris,
-        )
-        record = result.single()
-        return record['node_id']
-
-    @staticmethod
-    def _merge_kanji_reading_relationships(
-        tx: Transaction,
-        ent_seq: int,
-        reb: str,
-        re_restr: Union[str, None],
-    ) -> List[int]:
-        """Merges kanji relationships for `reb` related to entry `ent_seq`."""
-
-        # Add kanji reading relationships
-        cypher = textwrap.dedent("""\
-            MATCH (e:Entry {ent_seq: $ent_seq})
-            OPTIONAL MATCH (e)-[:CONTAINS]->(k:Kanji)
-            WITH e, k
-            WHERE k IS NOT NULL AND k.keb = coalesce($re_restr, k.keb)
-            MATCH (n:Reading {reb: $reb})<-[:CONTAINS]-(e)
-            MERGE (k)-[r:HAS_READING]->(n)
-            RETURN id(k) AS node_id
-        """)
-        result = tx.run(
-            cypher,
-            ent_seq=ent_seq,
-            reb=reb,
-            re_restr=re_restr,
-        )
-        values = [record.value() for record in result]
-        return values
-
-    @staticmethod
-    def _merge_and_return_sense(
-        tx: Transaction,
-        ent_seq: int,
-        rank: int,
-        stagks: List[str],
-        stagrs: List[str],
-        xrefs: List[dict],
-        ants: List[dict],
-        pos: List[str],
-        fields: List[str],
-        miscs: List[str],
-        s_infs: List[str],
-        defns: List[str],
-        expls: List[str],
-        figs: List[str],
-        lits: List[str],
-        tms: List[str],
-    ) -> int:
-        """Merges and returns sense related to entry `ent_seq`."""
-
-        # Add a node for the entry
-        cypher = textwrap.dedent("""\
-            MATCH (e:Entry {ent_seq: $ent_seq})
-            MERGE (e)-[:CONTAINS]->(s:Sense {ent_seq: $ent_seq, rank: $rank})
-            ON CREATE
-              SET s.pos = $pos
-              SET s.field = $fields
-              SET s.misc = $miscs
-              SET s.s_inf = $s_infs
-              SET s.defn = $defns
-              SET s.expl = $expls
-              SET s.fig = $figs
-              SET s.lit = $lits
-              SET s.tm = $tms
-            RETURN id(s) AS node_id
-        """)
-        result = tx.run(
-            cypher,
-            ent_seq=ent_seq,
-            rank=rank,
-            pos=pos,
-            fields=fields,
-            miscs=miscs,
-            s_infs=s_infs,
-            defns=defns,
-            expls=expls,
-            figs=figs,
-            lits=lits,
-            tms=tms,
-        )
-        record = result.single()
-
-        # stagks
-        # stagrs
-        # xrefs
-        # ants
-
-        return record['node_id']
-
-    @staticmethod
-    def _merge_kanji_sense_relationships(
-        tx: Transaction,
-        ent_seq: int,
-        sense_id: int,
-        stagks: List[str],
-    ) -> List[int]:
-        """Merges kanji->sense relationships under `ent_seq`."""
-
-        # Add a node for the entry
-        cypher = textwrap.dedent("""\
-            MATCH (e:Entry {ent_seq: $ent_seq})
-            UNWIND $stagks as keb
-            MATCH (s:Sense)<-[:CONTAINS]-(e)-[:CONTAINS]->
-                  (k:Kanji {keb: keb})
-            MERGE (k)-[r:HAS_SENSE]->(s)
-            RETURN id(r) AS node_id
-        """)
-        result = tx.run(
-            cypher,
-            ent_seq=ent_seq,
-            sense_id=sense_id,
-            stagks=stagks,
-        )
-        return result.value()
-
-    @staticmethod
-    def _merge_reading_sense_relationships(
-        tx: Transaction,
-        ent_seq: int,
-        sense_id: int,
-        stagrs: List[str],
-    ) -> List[int]:
-        """Merges reading->sense relationships under `ent_seq`."""
-
-        # Add a node for the entry
-        cypher = textwrap.dedent("""\
-            MATCH (e:Entry {ent_seq: $ent_seq})
-            UNWIND $stagrs as reb
-            MATCH (s:Sense)<-[:CONTAINS]-(e)-[:CONTAINS]->
-                  (k:Reading {reb: reb})
-            MERGE (k)-[r:HAS_SENSE]->(s)
-            RETURN id(r) AS node_id
-        """)
-        result = tx.run(
-            cypher,
-            ent_seq=ent_seq,
-            sense_id=sense_id,
-            stagrs=stagrs,
-        )
-        return result.value()
 
 
 def get_parser(argv: List[str]) -> argparse.ArgumentParser:
