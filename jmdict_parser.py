@@ -281,12 +281,6 @@ class NeoApp:
             stagks = [elem.text for elem in entry.findall('keb')]
             stagrs = [elem.text for elem in entry.findall('reb')]
 
-        # Gather references to related entries
-        xrefs = [parse_xref(elem.text) for elem in sense.findall('xref')]
-
-        # Gather antonym references to related entries
-        ants = [parse_xref(elem.text) for elem in sense.findall('ant')]
-
         # Gather parts of speech, fields of application, misc information
         # TODO: convert from codes to readable values OR
         #       create nodes that represent each of these to relate to
@@ -349,30 +343,6 @@ class NeoApp:
             logging.debug(
                 'Added sense relationships to readings: %s',
                 list(zip(stagrs, reading_relationships)),
-            )
-            # TODO: implement helper function
-            xref_ids = session_.write_transaction(
-                self._merge_ref_sense_relationships,
-                ent_seq,
-                sense_id,
-                xrefs,
-            )
-            logging.debug(
-                'Related sense %s to external references %s',
-                sense,
-                xref_ids,
-            )
-            ant_ids = session_.write_transaction(
-                self._merge_ref_sense_relationships,
-                ent_seq,
-                sense_id,
-                ants,
-                relationship='ANTONYM_OF'
-            )
-            logging.debug(
-                'Related sense %s to antonym references %s',
-                sense,
-                ant_ids,
             )
 
         return sense_id
@@ -564,6 +534,29 @@ class NeoApp:
             ref: The ref element.
             session: A driver session for the work.
         """
+
+        # Gather references to related entries
+        # xrefs = [parse_xref(elem.text) for elem in sense.findall('xref')]
+
+        # Gather antonym references to related entries
+        # ants = [parse_xref(elem.text) for elem in sense.findall('ant')]
+
+        # this will be sense -> sense
+        # where kanji, i want to assert there is only one kanji match
+        # where reading, i want to assert there is only one reading match
+        # once assertion passes, get the entity parent. if there is
+        # no parent... i think we need to know the other entry. two cases:
+        # 1. we find the kanji
+        #  this would tell me it has a parent entry and that the senses
+        #  for it are also created
+        # 2. we don't find a kanji
+        #  this tells me we have nothing... we would need to create the
+        #   - entry
+        #   - kanji/reading
+        #   - a sense! with the correct rank!
+        #  to do this we need
+        #   - ent_seq *** this needs to be an input and found via lxml
+        #   - rank
 
         # TODO: implement this
         pass
