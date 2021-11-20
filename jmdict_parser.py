@@ -127,6 +127,20 @@ class NeoApp:
                 'Added uniqueness constraint for lang on Language nodes',
             )
 
+    def create_example_constraint(self, session: Optional[Session] = None):
+        """Creates a uniqueness constraint on ``tat`` for Example nodes."""
+
+        cypher = textwrap.dedent("""\
+            CREATE CONSTRAINT example_tat IF NOT EXISTS ON (n:Example)
+            ASSERT n.tat IS UNIQUE
+        """)
+        with contextlib.ExitStack() as stack:
+            session = session or stack.enter_context(self.driver.session())
+            session.run(cypher)
+            logging.debug(
+                'Added uniqueness constraint for tat on Example nodes',
+            )
+
     def add_entry(
         self,
         entry: etree.Element,
@@ -842,6 +856,7 @@ def main(argv=sys.argv[1:]):
     # Set constraints for DB schema
     neo_app.create_entry_constraint()
     neo_app.create_lsource_constraint()
+    neo_app.create_example_constraint()
 
     # Traverse from root on <entry> elements and add nodes
     now = datetime.datetime.now()
