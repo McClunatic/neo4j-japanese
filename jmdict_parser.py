@@ -42,7 +42,7 @@ def is_kana(string: str) -> bool:
     return True
 
 
-def parse_xref(xref: str) -> dict:
+def parse_xref(xref: str) -> Dict[str, Union[str, int]]:
     """Parses `xref` into a `keb`, `reb`, and `sense` rank.
 
     Args:
