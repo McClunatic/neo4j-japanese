@@ -465,10 +465,6 @@ class NeoApp:
         tx: Transaction,
         ent_seq: int,
         rank: int,
-        stagks: List[str],
-        stagrs: List[str],
-        xrefs: List[dict],
-        ants: List[dict],
         pos: List[str],
         fields: List[str],
         miscs: List[str],
@@ -512,11 +508,6 @@ class NeoApp:
             tms=tms,
         )
         record = result.single()
-
-        # stagks
-        # stagrs
-        # xrefs
-        # ants
 
         return record['node_id']
 
@@ -623,6 +614,7 @@ class NeoApp:
     def _merge_and_return_lsource(
         tx: Transaction,
         sense_id: int,
+        lang: str,
         phrase: str,
         partial: bool,
         wasei: bool,
@@ -633,7 +625,8 @@ class NeoApp:
         cypher = textwrap.dedent("""\
             MATCH (s:Sense)
             WHERE id(s) = $sense_id
-            MERGE (s)-[r:SOURCED_FROM]->(l:Language {lang: $lang})
+            MERGE (l:Language {lang: $lang})
+            MERGE (s)-[r:SOURCED_FROM]->(l)
             ON CREATE
               SET r.phrase = $phrase
               SET r.partial = $partial
@@ -643,6 +636,7 @@ class NeoApp:
         result = tx.run(
             cypher,
             sense_id=sense_id,
+            lang=lang,
             phrase=phrase,
             partial=partial,
             wasei=wasei,
@@ -730,7 +724,8 @@ class NeoApp:
         cypher = textwrap.dedent("""\
             MATCH (s:Sense)
             WHERE id(s) = $sense_id
-            MERGE (s)-[r:USED_IN]->(e:Example {tat: $tat})
+            MERGE (e:Example {tat: $tat})
+            MERGE (s)-[r:USED_IN]->(e)
             ON CREATE
               SET r.ex_text = $ex_text
               SET e.eng = $eng
