@@ -8,7 +8,7 @@ import sys
 import textwrap
 import datetime
 
-from typing import Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from lxml import etree
 from neo4j import GraphDatabase, Session, Transaction
@@ -458,19 +458,100 @@ class NeoApp:
     def add_example_for_sense(
         self,
         example: etree.Element,
-        sense: etree.Element,
+        sense_id: int,
         session: Optional[Session] = None,
     ) -> int:
         """Adds an `example` for `sense` to the database.
 
         Args:
             example: The example element.
-            sense: The sense element.
+            sense_id: The associated sense node ID.
             session: A driver session for the work.
         """
 
-        # TODO: implement this
-        pass
+        # <example>
+        # <ex_srce exsrc_type="tat">100041</ex_srce>
+        # <ex_text>学位</ex_text>
+        # <ex_sent xml:lang="jpn">彼は法学修士の学位を得た。</ex_sent>
+        # <ex_sent xml:lang="eng">He got a master's degree in law.</ex_sent>
+        # </example>
+
+        # Parse out Tatoeba sequence number (validating it is Tatoeba Project)
+        ex_srce = example.find('ex_srce')
+        exsrc_type = ex_srce.attrib.get('exsrc_type', 'tat')
+        assert exsrc_type == 'tat', f'Unexpected source type {exsrc_type!r}'
+        tat = ex_srce.text
+
+        # Standard XML namespace
+        ns = 'http://www.w3.org/XML/1998/namespace'
+
+        # Parse out the example sentences
+        # NOTE: The following test was used to confirm examples come in pairs
+        # > grep '<ex_sent' JMdict_e_examp.xml -n | \
+        # >>  cut -d: -f1 | awk 'NR > 1 { print $0 - prev } { prev = $0 }' | \
+        # >>  awk 'NR%2==1 { print $0 }' | \
+        # >>  uniq
+        # 1
+
+        def lang(elem):
+            return elem.attrib.get(f'{{{ns}}}lang', 'eng')
+
+        ex_sents = {lang(el): el.text for el in example.findall('ex_sent')}
+
+        # Parse out the example text for this sense_id
+        ex_text = example.find('ex_text').text
+
+        with contextlib.ExitStack() as stack:
+            session_ = session or stack.enter_context(self.driver.session())
+            lsource_id, relationship_id = session_.write_transaction(
+                self._merge_and_return_example,
+                sense_id,
+                tat,
+                ex_sents,
+                ex_text,
+            )
+            logging.debug(
+                'Added example %s for sense with ID %s',
+                example,
+                sense_id,
+            )
+            return lsource_id, relationship_id
+
+    @staticmethod
+    def _merge_and_return_example(
+        tx: Transaction,
+        sense_id: int,
+        tat: int,
+        ex_sents: Dict[str, str],
+        ex_text: str,
+    ) -> Tuple[int, int]:
+        """Merges and returns lsource for sense `sense_id` in the database."""
+
+        # Convert Dict[str, str] to eng and jpn ex_sent str
+        eng = ex_sents['eng']
+        jpn = ex_sents['jpn']
+
+        # Add a node for the entry
+        cypher = textwrap.dedent("""\
+            MATCH (s:Sense)
+            WHERE id(s) = $sense_id
+            MERGE (s)-[r:USED_IN]->(e:Example {tat: $tat})
+            ON CREATE
+              SET r.ex_text = $ex_text
+              SET e.eng = $eng
+              SET e.jpn = $jpn
+            RETURN id(e) AS node_id, id(r) as relationship_id
+        """)
+        result = tx.run(
+            cypher,
+            sense_id=sense_id,
+            tat=tat,
+            ex_text=ex_text,
+            eng=eng,
+            jpn=jpn,
+        )
+        record = result.single()
+        return record['node_id'], record['relationship_id']
 
     @staticmethod
     def _merge_and_return_entry(tx: Transaction, ent_seq: int) -> int:
