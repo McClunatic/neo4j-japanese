@@ -375,16 +375,6 @@ class NeoApp:
                 ant_ids,
             )
 
-        # TODO: add lsource and consider dict: attr(xml:lang) -> .text
-        # Add the lsource elements for this sense
-        # (lsource will be :LOANED_FROM {type, wasei} :Language {code: eng})
-        for lsource in sense.findall('lsource'):
-            self.add_example_for_sense(lsource, sense, session)
-
-        # TODO: add example elements for this sense
-        for example in sense.findall('example'):
-            self.add_example_for_sense(example, sense, session)
-
         return sense_id
 
     def add_lsource_for_sense(
@@ -724,7 +714,18 @@ def main(argv=sys.argv[1:]):
                     neo_app.add_reading_for_entry(r_ele, entry, session)
 
                 for idx, sense in enumerate(entry.findall('sense')):
-                    neo_app.add_sense_for_entry(idx, sense, entry, session)
+                    sid = neo_app.add_sense_for_entry(
+                        idx,
+                        sense,
+                        entry,
+                        session,
+                    )
+
+                    for lsource in sense.findall('lsource'):
+                        neo_app.add_lsource_for_sense(lsource, sid, session)
+
+                    for example in sense.findall('example'):
+                        neo_app.add_example_for_sense(example, sid, session)
 
     logging.info('Total elapsed time: %s', datetime.datetime.now() - now)
 
