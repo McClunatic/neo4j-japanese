@@ -526,6 +526,7 @@ class NeoApp:
             UNWIND $stagks as keb
             MATCH (s:Sense)<-[:CONTAINS]-(e)-[:CONTAINS]->
                   (k:Kanji {keb: keb})
+            WHERE id(s) = $sense_id
             MERGE (k)-[r:HAS_SENSE]->(s)
             RETURN id(r) AS node_id
         """)
@@ -552,6 +553,7 @@ class NeoApp:
             UNWIND $stagrs as reb
             MATCH (s:Sense)<-[:CONTAINS]-(e)-[:CONTAINS]->
                   (k:Reading {reb: reb})
+            WHERE id(s) = $sense_id
             MERGE (k)-[r:HAS_SENSE]->(s)
             RETURN id(r) AS node_id
         """)
