@@ -851,11 +851,12 @@ class NeoApp:
             WHERE
               r.reb = coalesce($reb, r.reb) AND
               ($keb IS NULL OR (k IS NOT NULL AND k.keb = $keb))
+            WITH e
             ORDER BY e.ent_seq
             LIMIT 1
-            WITH e
-            MATCH (src:Sense {ent_seq: $ent_seq, rank: $rank}),
-                  (e)-[:CONTAINS]->(dest:Sense)
+            MATCH (src:Sense {ent_seq: $ent_seq, rank: $rank})
+            WITH e, src
+            MATCH (e)-[:CONTAINS]->(dest:Sense)
             WHERE $sense IS NULL OR dest.rank = $sense
             MERGE (src)-[xref:RELATED_TO {antonym: $antonym}]->(dest)
             RETURN id(xref) as relationship_id
