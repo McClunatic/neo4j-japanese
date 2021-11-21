@@ -759,31 +759,76 @@ class NeoApp:
             session: A driver session for the work.
         """
 
-        # Gather references to related entries
-        # xrefs = [parse_xref(elem.text) for elem in sense.findall('xref')]
+        # Get the parent sense and grandparent entry elements
+        sense = ref.getparent()
+        entry = sense.getparent()
 
-        # Gather antonym references to related entries
-        # ants = [parse_xref(elem.text) for elem in sense.findall('ant')]
+        # Get the ent_seq and sense rank to find unique sense
+        ent_seq = int(entry.find('ent_seq').text)
+        rank = entry.findall('sense').index(sense) + 1
 
-        # this will be sense -> sense
-        # where kanji, i want to assert there is only one kanji match
-        # where reading, i want to assert there is only one reading match
-        # once assertion passes, get the entity parent. if there is
-        # no parent... i think we need to know the other entry. two cases:
-        # 1. we find the kanji
-        #  this would tell me it has a parent entry and that the senses
-        #  for it are also created
-        # 2. we don't find a kanji
-        #  this tells me we have nothing... we would need to create the
-        #   - entry
-        #   - kanji/reading
-        #   - a sense! with the correct rank!
-        #  to do this we need
-        #   - ent_seq *** this needs to be an input and found via lxml
-        #   - rank
+        # Parse the ref text and figure out whether it is an antonym ref
+        data = parse_xref(ref.text)
+        antonym = ref.tag == 'ant'
 
-        # TODO: implement this
-        pass
+        with contextlib.ExitStack() as stack:
+            session_ = session or stack.enter_context(self.driver.session())
+            xref_ids = session_.write_transaction(
+                self._merge_ref_relationships,
+                ent_seq,
+                rank,
+                antonym,
+                **data,
+            )
+            logger.debug(
+                'Added x-reference relationships for %r under entry %s: %s',
+                ref.text,
+                ent_seq,
+                xref_ids,
+            )
+            return xref_ids
+
+    @staticmethod
+    def _merge_ref_relationships(
+        tx: Transaction,
+        ent_seq: int,
+        rank: int,
+        antonym: bool,
+        keb: Optional[str],
+        reb: Optional[str],
+        sense: Optional[int],
+    ) -> List[int]:
+        """Merges and returns xrefs under entry with `ent_seq` in db."""
+
+        # 1. find the kanji
+        # 2. find the parent entries
+        # 3. order those entries by ent_seq number
+        # 4. relate the sense to only the kanji that is beneath the 1st entry
+
+        cypher = textwrap.dedent("""\
+            MATCH (r:Reading)-[:CONTAINS]-(e:Entry)-[:CONTAINS]->(k:Kanji)
+            WHERE
+              r.reb = coalesce($reb, r.reb) AND
+              ($keb IS NULL OR (k IS NOT NULL AND k.keb = $keb))
+            ORDER BY e.ent_seq
+            LIMIT 1
+            WITH e
+            MATCH (src:Sense {ent_seq: $ent_seq, rank: $rank}),
+                  (e)-[:CONTAINS]->(dest:Sense)
+            WHERE $sense IS NULL OR dest.rank = $sense
+            MERGE (src)-[xref:RELATED_TO {antonym: $antonym}]->(dest)
+            RETURN id(xref) as relationship_id
+        """)
+        result = tx.run(
+            cypher,
+            ent_seq=ent_seq,
+            rank=rank,
+            antonym=antonym,
+            keb=keb,
+            reb=reb,
+            sense=sense,
+        )
+        return result.value('relationship_id')
 
 
 def get_parser(argv: List[str]) -> argparse.ArgumentParser:
@@ -823,6 +868,8 @@ def get_parser(argv: List[str]) -> argparse.ArgumentParser:
                         help='Skip over operations on reading elements')
     parser.add_argument('--skip-senses', action='store_true',
                         help='Skip over operations on sense elements')
+    parser.add_argument('--skip-refs', action='store_true',
+                        help='Skip over operations on xref/ant elements')
 
     return parser
 
@@ -943,18 +990,19 @@ def main(argv=sys.argv[1:]):
                                 session,
                             )
 
-    xref_or_ant = './/*[self::xref or self::ant]'
-    for num, batch in enumerate(grouper(root.xpath(xref_or_ant), 1024)):
-        logger.info(
-            'Processing ref batch: %s, elapsed time: %s',
-            num + 1,
-            datetime.datetime.now() - now,
-        )
-        with neo_app.driver.session() as session:
-            for ref in batch:
-                if ref is None:
-                    break
-                neo_app.add_ref(ref, session)
+    if not args.skip_refs:
+        xref_or_ant = './/*[self::xref or self::ant]'
+        for num, batch in enumerate(grouper(root.xpath(xref_or_ant), 1024)):
+            logger.info(
+                'Processing ref batch: %s, elapsed time: %s',
+                num + 1,
+                datetime.datetime.now() - now,
+            )
+            with neo_app.driver.session() as session:
+                for ref in batch:
+                    if ref is None:
+                        break
+                    neo_app.add_ref(ref, session)
 
     logger.info('Total elapsed time: %s', datetime.datetime.now() - now)
 
