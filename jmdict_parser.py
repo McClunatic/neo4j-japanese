@@ -391,8 +391,8 @@ class NeoApp:
 
         # If there are no restrictions, stagk/rs should refer to all k/rebs
         if not stagks:
-            stagks = [elem.text for elem in entry.findall('keb')]
-            stagrs = [elem.text for elem in entry.findall('reb')]
+            stagks = [elem.text for elem in entry.xpath('.//keb')]
+            stagrs = [elem.text for elem in entry.xpath('.//reb')]
 
         # Gather parts of speech, fields of application, misc information
         # TODO: convert from codes to readable values OR
