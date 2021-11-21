@@ -835,9 +835,9 @@ class NeoApp:
         ent_seq: int,
         rank: int,
         antonym: bool,
-        keb: Optional[str],
-        reb: Optional[str],
-        sense: Optional[int],
+        keb: Optional[str] = None,
+        reb: Optional[str] = None,
+        sense: Optional[int] = None,
     ) -> List[int]:
         """Merges and returns xrefs under entry with `ent_seq` in db."""
 
