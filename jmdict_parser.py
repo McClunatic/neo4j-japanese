@@ -812,6 +812,9 @@ def get_parser(argv: List[str]) -> argparse.ArgumentParser:
     group.add_argument('-s', '--silent', action='store_true',
                        help='Display only warning log messages')
 
+    parser.add_argument('--neo4j-debug', action='store_true',
+                        help='Display Neo4j driver debug messages')
+
     parser.add_argument('--skip-entries', action='store_true',
                         help='Skip over operations on entry elements')
     parser.add_argument('--skip-kanji', action='store_true',
@@ -841,6 +844,29 @@ def grouper(
     return itertools.zip_longest(*args)
 
 
+def configure_logger(log: logging.Logger, level: str):
+    """Configures `log` to use logging level `level`.
+
+    Args:
+        log: The logger to configure.
+        level: The logging level to use.
+    """
+
+    # Set the log level
+    log.setLevel(level)
+
+    # Create the handler and set its level
+    handler = logging.StreamHandler()
+    handler.setLevel(level)
+
+    # Create the formatter and add it to the handler
+    formatter = logging.Formatter(fmt='%(levelname)s: %(message)s')
+    handler.setFormatter(formatter)
+
+    # Add the configured handler to the logger
+    log.addHandler(handler)
+
+
 def main(argv=sys.argv[1:]):
     """Does it all."""
 
@@ -849,12 +875,12 @@ def main(argv=sys.argv[1:]):
 
     # Configure logging
     level = 'DEBUG' if args.debug else 'WARNING' if args.silent else 'INFO'
-    logger.setLevel(level)
-    handler = logging.StreamHandler()
-    handler.setLevel(level)
-    formatter = logging.Formatter(fmt='%(levelname)s: %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    configure_logger(logger, level)
+
+    # Configure Neo4j logging
+    neo4j_logger = logging.getLogger('neo4j')
+    neo4j_level = 'DEBUG' if args.neo4j_debug else 'WARNING'
+    configure_logger(neo4j_logger, neo4j_level)
 
     # Read the specified XML file and parse the XML tree
     with open(args.xml_file) as xmlf:
