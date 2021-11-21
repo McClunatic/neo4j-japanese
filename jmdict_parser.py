@@ -143,6 +143,47 @@ class NeoApp:
                 'Added uniqueness constraint for tat on Example nodes',
             )
 
+    def create_kanji_index(self, session: Optional[Session] = None):
+        """Creates an single-property index for Kanji on ``keb``."""
+
+        cypher = textwrap.dedent("""\
+            CREATE INDEX kanji_keb IF NOT EXISTS FOR (n:Kanji) ON (n.keb)
+        """)
+        with contextlib.ExitStack() as stack:
+            session = session or stack.enter_context(self.driver.session())
+            session.run(cypher)
+            logger.debug(
+                'Added index for Kanji nodes on keb',
+            )
+
+    def create_reading_index(self, session: Optional[Session] = None):
+        """Creates an single-property index for Reading on ``reb``."""
+
+        cypher = textwrap.dedent("""\
+            CREATE INDEX reading_reb IF NOT EXISTS FOR (n:Reading) ON (n.reb)
+        """)
+        with contextlib.ExitStack() as stack:
+            session = session or stack.enter_context(self.driver.session())
+            session.run(cypher)
+            logger.debug(
+                'Added index for Reading nodes on reb',
+            )
+
+    def create_sense_index(self, session: Optional[Session] = None):
+        """Creates a composite-property index for Sense on (``ent_seq, rank``).
+        """
+
+        cypher = textwrap.dedent("""\
+            CREATE INDEX sense_ent_seq_rank IF NOT EXISTS FOR (n:Sense)
+            ON (n.ent_seq, n.rank)
+        """)
+        with contextlib.ExitStack() as stack:
+            session = session or stack.enter_context(self.driver.session())
+            session.run(cypher)
+            logger.debug(
+                'Added composite index for Sense nodes on (ent_seq, rank)',
+            )
+
     def add_entry(
         self,
         entry: etree.Element,
@@ -943,6 +984,11 @@ def main(argv=sys.argv[1:]):
     neo_app.create_entry_constraint()
     neo_app.create_lsource_constraint()
     neo_app.create_example_constraint()
+
+    # Create indices for DB schema
+    neo_app.create_kanji_index()
+    neo_app.create_reading_index()
+    neo_app.create_sense_index()
 
     # Traverse from root on <entry> elements and add nodes
     now = datetime.datetime.now()
