@@ -810,6 +810,15 @@ def get_parser(argv: List[str]) -> argparse.ArgumentParser:
     group.add_argument('-s', '--silent', action='store_true',
                        help='Display only warning log messages')
 
+    parser.add_argument('--skip-entries', action='store_true',
+                        help='Skip over operations on entry elements')
+    parser.add_argument('--skip-kanji', action='store_true',
+                        help='Skip over operations on kanji elements')
+    parser.add_argument('--skip-readings', action='store_true',
+                        help='Skip over operations on reading elements')
+    parser.add_argument('--skip-senses', action='store_true',
+                        help='Skip over operations on sense elements')
+
     return parser
 
 
@@ -867,27 +876,39 @@ def main(argv=sys.argv[1:]):
             for entry in batch:
                 if entry is None:
                     break
-                neo_app.add_entry(entry, session)
+                if not args.skip_entries:
+                    neo_app.add_entry(entry, session)
 
-                for k_ele in entry.findall('k_ele'):
-                    neo_app.add_kanji_for_entry(k_ele, entry, session)
+                if not args.skip_kanji:
+                    for k_ele in entry.findall('k_ele'):
+                        neo_app.add_kanji_for_entry(k_ele, entry, session)
 
-                for r_ele in entry.findall('r_ele'):
-                    neo_app.add_reading_for_entry(r_ele, entry, session)
+                if not args.skip_readings:
+                    for r_ele in entry.findall('r_ele'):
+                        neo_app.add_reading_for_entry(r_ele, entry, session)
 
-                for idx, sense in enumerate(entry.findall('sense')):
-                    sid = neo_app.add_sense_for_entry(
-                        idx,
-                        sense,
-                        entry,
-                        session,
-                    )
+                if not args.skip_senses:
+                    for idx, sense in enumerate(entry.findall('sense')):
+                        sense_id = neo_app.add_sense_for_entry(
+                            idx,
+                            sense,
+                            entry,
+                            session,
+                        )
 
-                    for lsource in sense.findall('lsource'):
-                        neo_app.add_lsource_for_sense(lsource, sid, session)
+                        for lsource in sense.findall('lsource'):
+                            neo_app.add_lsource_for_sense(
+                                lsource,
+                                sense_id,
+                                session,
+                            )
 
-                    for example in sense.findall('example'):
-                        neo_app.add_example_for_sense(example, sid, session)
+                        for example in sense.findall('example'):
+                            neo_app.add_example_for_sense(
+                                example,
+                                sense_id,
+                                session,
+                            )
 
     xref_or_ant = './/*[self::xref or self::ant]'
     for num, batch in enumerate(grouper(root.xpath(xref_or_ant), 1024)):
