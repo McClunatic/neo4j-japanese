@@ -14,6 +14,8 @@ from lxml import etree
 from neo4j import GraphDatabase, Session, Transaction
 
 
+logger = logging.getLogger('jmdict')
+
 DOT = '\xb7'
 KANA_DOT = '\u30fb'
 
@@ -81,7 +83,7 @@ class NeoApp:
 
         self.uri = uri
         self.user = user
-        logging.debug('Initializing driver, URI: %s', uri)
+        logger.debug('Initializing driver, URI: %s', uri)
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
 
         self.closed = False
@@ -90,7 +92,7 @@ class NeoApp:
         """Closes the driver connection."""
 
         if not self.closed:
-            logging.debug('Closing driver')
+            logger.debug('Closing driver')
             self.closed = True
             self.driver.close()
 
@@ -109,7 +111,7 @@ class NeoApp:
         with contextlib.ExitStack() as stack:
             session = session or stack.enter_context(self.driver.session())
             session.run(cypher)
-            logging.debug(
+            logger.debug(
                 'Added uniqueness constraint for ent_seq on Entry nodes',
             )
 
@@ -123,7 +125,7 @@ class NeoApp:
         with contextlib.ExitStack() as stack:
             session = session or stack.enter_context(self.driver.session())
             session.run(cypher)
-            logging.debug(
+            logger.debug(
                 'Added uniqueness constraint for lang on Language nodes',
             )
 
@@ -137,7 +139,7 @@ class NeoApp:
         with contextlib.ExitStack() as stack:
             session = session or stack.enter_context(self.driver.session())
             session.run(cypher)
-            logging.debug(
+            logger.debug(
                 'Added uniqueness constraint for tat on Example nodes',
             )
 
@@ -162,7 +164,7 @@ class NeoApp:
                 self._merge_and_return_entry,
                 ent_seq,
             )
-            logging.debug(
+            logger.debug(
                 'Added entry with ent_seq %s, ID: %s',
                 ent_seq,
                 node_id,
@@ -212,7 +214,7 @@ class NeoApp:
                 ke_infs,
                 ke_pris,
             )
-            logging.debug(
+            logger.debug(
                 'Added kanji %s to entry %s, ID: %s',
                 keb,
                 ent_seq,
@@ -297,7 +299,7 @@ class NeoApp:
                 reb,
                 re_restr,
             )
-            logging.debug(
+            logger.debug(
                 'Added reading %s to entry %s, (ID, kanji): %s, %s',
                 reb,
                 ent_seq,
@@ -432,7 +434,7 @@ class NeoApp:
                 tms,
             )
             # TODO: relate stagks for sense
-            logging.debug(
+            logger.debug(
                 'Added sense %s to entry %s',
                 sense_id,
                 ent_seq,
@@ -443,7 +445,7 @@ class NeoApp:
                 sense_id,
                 stagks,
             )
-            logging.debug(
+            logger.debug(
                 'Added sense relationships to kanji: %s',
                 list(zip(stagks, kanji_relationhips)),
             )
@@ -453,7 +455,7 @@ class NeoApp:
                 sense_id,
                 stagrs,
             )
-            logging.debug(
+            logger.debug(
                 'Added sense relationships to readings: %s',
                 list(zip(stagrs, reading_relationships)),
             )
@@ -605,7 +607,7 @@ class NeoApp:
                 partial,
                 wasei,
             )
-            logging.debug(
+            logger.debug(
                 'Added lsource %s for sense with ID %s',
                 lang,
                 sense_id,
@@ -701,7 +703,7 @@ class NeoApp:
                 ex_sents,
                 ex_text,
             )
-            logging.debug(
+            logger.debug(
                 'Added example %s for sense with ID %s',
                 example,
                 sense_id,
@@ -847,7 +849,12 @@ def main(argv=sys.argv[1:]):
 
     # Configure logging
     level = 'DEBUG' if args.debug else 'WARNING' if args.silent else 'INFO'
-    logging.basicConfig(format='%(levelname)s: %(message)s', level=level)
+    logger.setLevel(level)
+    handler = logging.StreamHandler()
+    handler.setLevel(level)
+    formatter = logging.Formatter(fmt='%(levelname)s: %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
     # Read the specified XML file and parse the XML tree
     with open(args.xml_file) as xmlf:
@@ -867,7 +874,7 @@ def main(argv=sys.argv[1:]):
     # Traverse from root on <entry> elements and add nodes
     now = datetime.datetime.now()
     for num, batch in enumerate(grouper(root.iter('entry'), 1024)):
-        logging.info(
+        logger.info(
             'Processing entry batch: %s, elapsed time: %s',
             num + 1,
             datetime.datetime.now() - now,
@@ -912,7 +919,7 @@ def main(argv=sys.argv[1:]):
 
     xref_or_ant = './/*[self::xref or self::ant]'
     for num, batch in enumerate(grouper(root.xpath(xref_or_ant), 1024)):
-        logging.info(
+        logger.info(
             'Processing ref batch: %s, elapsed time: %s',
             num + 1,
             datetime.datetime.now() - now,
@@ -923,7 +930,7 @@ def main(argv=sys.argv[1:]):
                     break
                 neo_app.add_ref(ref, session)
 
-    logging.info('Total elapsed time: %s', datetime.datetime.now() - now)
+    logger.info('Total elapsed time: %s', datetime.datetime.now() - now)
 
     # Close the neo_app
     neo_app.close()
