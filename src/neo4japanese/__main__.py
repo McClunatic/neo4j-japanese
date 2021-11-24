@@ -103,6 +103,13 @@ def run(args: argparse.Namespace):
     logger.info('Connecting to DB (URI = %s)', args.neo4j_uri)
     neo_app = Neo4Japanese(args.neo4j_uri, args.user, args.pw)
 
+    # Create DB constraints and indices
+    neo_app.create_entry_constraint()
+    neo_app.create_sentence_constraint()
+    neo_app.create_language_constraint()
+    neo_app.create_kanji_index()
+    neo_app.create_reading_index()
+
     # Read the specified XML file and parse the XML tree
     logger.info('Parsing JMdict XML (file = %s)', args.xml_file)
     with open(args.xml_file) as xmlf:
@@ -119,14 +126,15 @@ def run(args: argparse.Namespace):
     now = datetime.datetime.now()
     for batch, entries in enumerate(grouper(all_entries, args.batch_size)):
 
-        # Parse XML elements into List[dict]
-        entries = [jmdict.get_entry(entry).dict() for entry in entries
+        # Parse XML elements in entries, dropping None entries in last group
+        entries = [jmdict.get_entry(entry) for entry in entries
                    if entry is not None]
 
         # Add Entry, Kanji, and Readings to the DB
         neo_app.add_entries(entries)
         neo_app.add_kanji_for_entries(entries)
         neo_app.add_readings_for_entries(entries)
+        neo_app.add_senses_for_entries(entries)
 
         logger.info(
             'Processed batch %s/%s, elapsed time: %s',

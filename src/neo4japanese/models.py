@@ -9,8 +9,8 @@ from pydantic import BaseModel
 class Kanji(BaseModel):
     """Model for Kanji node."""
     keb: str
-    ke_infs: List[str]
-    ke_pris: List[str]
+    ke_inf: List[str]
+    ke_pri: List[str]
 
 
 class Reading(BaseModel):
@@ -18,8 +18,8 @@ class Reading(BaseModel):
     reb: str
     re_nokanji: bool
     re_restr: List[str]
-    re_infs: List[str]
-    re_pris: List[str]
+    re_inf: List[str]
+    re_pri: List[str]
 
 
 class Language(BaseModel):
@@ -30,7 +30,7 @@ class Language(BaseModel):
 class Lsource(BaseModel):
     """Model for Sense->Language relationship."""
     lang: Language
-    phrase: str
+    phrase: Optional[str]
     partial: bool
     wasei: bool
 
@@ -55,6 +55,9 @@ class Sentence(BaseModel):
     ex_srce: int
     eng: str
     jpn: str
+
+    class Config:
+        use_enum_values = True
 
 
 class Example(BaseModel):
@@ -82,3 +85,4 @@ class Entry(BaseModel):
     ent_seq: int
     k_ele: List[Kanji]
     r_ele: List[Reading]
+    sense: List[Sense]

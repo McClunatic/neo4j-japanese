@@ -51,17 +51,18 @@ class Neo4Japanese:
         with self.driver.session() as session:
             session.write_transaction(transactions.create_entry_constraint)
 
-    def create_lsource_constraint(self):
-        """Creates a uniqueness constraint on ``lang`` for Language nodes."""
+    def create_language_constraint(self):
+        """Creates a uniqueness constraint on ``name`` for Language nodes."""
 
         with self.driver.session() as session:
-            session.write_transaction(transactions.create_lsource_constraint)
+            session.write_transaction(transactions.create_language_constraint)
 
-    def create_example_constraint(self):
-        """Creates a uniqueness constraint on ``tat`` for Example nodes."""
+    def create_sentence_constraint(self):
+        """Creates a uniqueness constraint on ``ex_srce`` for Sentence nodes.
+        """
 
         with self.driver.session() as session:
-            session.write_transaction(transactions.create_example_constraint)
+            session.write_transaction(transactions.create_sentence_constraint)
 
     def create_kanji_index(self):
         """Creates an single-property index for Kanji on ``keb``."""
@@ -74,13 +75,6 @@ class Neo4Japanese:
 
         with self.driver.session() as session:
             session.write_transaction(transactions.create_reading_index)
-
-    def create_sense_index(self):
-        """Creates a composite-property index for Sense on (``ent_seq, rank``).
-        """
-
-        with self.driver.session() as session:
-            session.write_transaction(transactions.create_sense_index)
 
     def add_entries(
         self,
@@ -103,7 +97,7 @@ class Neo4Japanese:
         with self.driver.session() as session:
             return session.write_transaction(
                 transactions.merge_and_return_entries,
-                entries,
+                [entry.dict() for entry in entries],
             )
 
     def add_kanji_for_entries(
@@ -127,7 +121,7 @@ class Neo4Japanese:
         with self.driver.session() as session:
             return session.write_transaction(
                 transactions.merge_and_return_kanji_for_entries,
-                entries,
+                [entry.dict() for entry in entries],
             )
 
     def add_readings_for_entries(
@@ -144,12 +138,36 @@ class Neo4Japanese:
         """
 
         logger.debug(
-            'Adding Readings nodes for entries (%s, ..., %s)',
+            'Adding Reading nodes for entries (%s, ..., %s)',
             entries[0],
             entries[-1],
         )
         with self.driver.session() as session:
             return session.write_transaction(
                 transactions.merge_and_return_readings_for_entries,
-                entries,
+                [entry.dict() for entry in entries],
+            )
+
+    def add_senses_for_entries(
+        self,
+        entries: Iterable[models.Entry],
+    ) -> List[int]:
+        """Adds senses associated with `entries` to the database.
+
+        Args:
+            entries: Iterable of entries.
+
+        Returns:
+            List of created or merged Sense node IDs.
+        """
+
+        logger.debug(
+            'Adding Sense nodes for entries (%s, ..., %s)',
+            entries[0],
+            entries[-1],
+        )
+        with self.driver.session() as session:
+            return session.write_transaction(
+                transactions.merge_and_return_senses_for_entries,
+                [entry.dict() for entry in entries],
             )

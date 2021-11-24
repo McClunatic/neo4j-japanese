@@ -38,8 +38,8 @@ def get_kanji(entry: etree.Element) -> List[Kanji]:
     for k_ele in entry.xpath('k_ele'):
         kanji.append(Kanji(
             keb=k_ele.find('keb').text,
-            ke_infs=[elem.text for elem in k_ele.xpath('ke_inf')],
-            ke_pris=[elem.text for elem in k_ele.xpath('ke_pri')],
+            ke_inf=[elem.text for elem in k_ele.xpath('ke_inf')],
+            ke_pri=[elem.text for elem in k_ele.xpath('ke_pri')],
         ))
 
     return kanji
@@ -61,8 +61,8 @@ def get_readings(entry: etree.Element) -> List[Reading]:
             reb=r_ele.find('reb').text,
             re_nokanji=r_ele.find('re_nokanji') is not None,
             re_restr=[elem.text for elem in r_ele.xpath('re_restr')],
-            re_infs=[elem.text for elem in r_ele.xpath('re_inf')],
-            re_pris=[elem.text for elem in r_ele.xpath('re_pri')],
+            re_inf=[elem.text for elem in r_ele.xpath('re_inf')],
+            re_pri=[elem.text for elem in r_ele.xpath('re_pri')],
         ))
 
     return readings
@@ -80,7 +80,7 @@ def get_lsources(sense: etree.Element) -> List[Lsource]:
 
     lsources = []
     for lsource in sense.xpath('lsource'):
-        name = lsource.attrib.get(f'{{{XML_NAMESPACE}}}lang', 'eng'),
+        name = lsource.attrib.get(f'{{{XML_NAMESPACE}}}lang', 'eng')
         lsources.append(Lsource(
             lang=Language(name=name),
             phrase=lsource.text,
@@ -126,15 +126,15 @@ def get_examples(sense: etree.Element) -> List[Example]:
         return elem.attrib.get(f'{{{XML_NAMESPACE}}}lang', 'eng')
 
     examples = []
-    for example in sense.xpath('lsource'):
+    for example in sense.xpath('example'):
         ex_srce = example.find('ex_srce')
-        ex_sents = {lang(elem): elem.text for elem in example.xpath('ex_sent')}
+        ex_sent = {lang(elem): elem.text for elem in example.xpath('ex_sent')}
         examples.append(Example(
             sentence=Sentence(
                 exsrc_type=ex_srce.attrib.get('exsrc_type'),
                 ex_srce=ex_srce.text,
-                eng=ex_sents['eng'],
-                jpn=ex_sents['jpn'],
+                eng=ex_sent['eng'],
+                jpn=ex_sent['jpn'],
             ),
             ex_text=example.find('ex_text').text,
         ))
@@ -192,4 +192,5 @@ def get_entry(entry: etree.Element) -> Entry:
         ent_seq=entry.find('ent_seq').text,
         k_ele=get_kanji(entry),
         r_ele=get_readings(entry),
+        sense=get_senses(entry),
     )
