@@ -102,7 +102,7 @@ def merge_and_return_kanji_for_entries(
         UNWIND $entries AS entry
         UNWIND entry.k_ele AS kanji
         MATCH (e:Entry {ent_seq: entry.ent_seq})
-        MERGE (e)-[:CONTAINS]->(k:Kanji {keb: kanji.keb})
+        MERGE (e)-[:HAS_KANJI]->(k:Kanji {keb: kanji.keb})
         ON CREATE
           SET k.ke_inf = kanji.ke_inf
           SET k.ke_pri = kanji.ke_pri
@@ -122,15 +122,15 @@ def merge_and_return_readings_for_entries(
         UNWIND $entries AS entry
         UNWIND entry.r_ele AS reading
         MATCH (e:Entry {ent_seq: entry.ent_seq})
-        MERGE (e)-[:CONTAINS]->(r:Reading {reb: reading.reb})
+        MERGE (e)-[:HAS_READING]->(r:Reading {reb: reading.reb})
         ON CREATE
           SET r.re_inf = reading.re_inf
           SET r.re_pri = reading.re_pri
           SET r.re_nokanji = reading.re_nokanji
         WITH e, r, reading
         UNWIND reading.re_restr AS re_restr
-        MATCH (e)-[:CONTAINS]->(k:Kanji {keb: re_restr})
-        MERGE (k)-[rel:HAS_READING]->(r)
+        MATCH (e)-[:HAS_KANJI]->(k:Kanji {keb: re_restr})
+        MERGE (k)-[rel:IS_READ]->(r)
         RETURN id(r) AS node_id, id(rel) AS relationship_id
     """)
     result = tx.run(cypher, entries=entries)
@@ -155,7 +155,7 @@ def merge_and_return_senses_for_entries(
         UNWIND keys(map) AS key
         WITH entry, toInteger(key) AS rank, map[key] AS sense
         MATCH (e:Entry {ent_seq: entry.ent_seq})
-        MERGE (e)-[rel:CONTAINS {rank: rank}]->(s:Sense)
+        MERGE (e)-[rel:HAS_SENSE {rank: rank}]->(s:Sense)
         ON CREATE
           SET s.pos = sense.pos
           SET s.field = sense.field
@@ -175,13 +175,13 @@ def merge_and_return_senses_for_entries(
 
         WITH e, s, sense
         UNWIND sense.stagk AS keb
-        MATCH (e)-[:CONTAINS]->(k:Kanji {keb: keb})
-        MERGE (k)-[:HAS_SENSE]->(s)
+        MATCH (e)-[:HAS_KANJI]->(k:Kanji {keb: keb})
+        MERGE (k)-[:IS_DEFINED_BY]->(s)
 
         WITH e, s, sense
         UNWIND sense.stagr AS reb
-        MATCH (e)-[:CONTAINS]->(r:Reading {reb: reb})
-        MERGE (r)-[:HAS_SENSE]->(s)
+        MATCH (e)-[:HAS_READING]->(r:Reading {reb: reb})
+        MERGE (r)-[:IS_DEFINED_BY]->(s)
 
         WITH s, sense
         UNWIND sense.lsource as lsource
@@ -209,3 +209,55 @@ def merge_and_return_senses_for_entries(
     """)
     result = tx.run(cypher, entries=entries)
     return result.values()
+
+
+def merge_and_return_sense_xrefs_for_entries(
+    tx: Transaction,
+    entries: List[Entry],
+):
+    """Transaction function for :meth:`add_xref_relationships_for_entries`."""
+
+    cypher = textwrap.dedent("""\
+        UNWIND $entries AS entry
+        MATCH (e:Entry {ent_seq: entry.ent_seq})
+        WITH
+          entry,
+          e,
+          apoc.map.setLists(
+            {},
+            toStringList(range(1, size(entry.sense))),
+            entry.sense
+          ) AS map
+        UNWIND keys(map) AS key
+        MATCH (e)-[:HAS_SENSE {rank: toInteger(key)}]->(src:Sense)
+        WITH map[key] AS sense, src
+
+        CALL {
+          WITH sense, src
+          UNWIND sense.xref as xref
+          RETURN {xref: xref, antonym: false} as rows
+        UNION
+          WITH sense, src
+          UNWIND sense.ant as xref
+          RETURN {xref: xref, antonym: true} as rows
+        }
+
+        UNWIND rows as row
+        CALL {
+          WITH row
+          MATCH (r:Reading)<-[:HAS_READING]-(oe:Entry)-[:HAS_KANJI]->(k:Kanji)
+          WHERE
+            r.reb = coalesce(row.xref.reb, r.reb) AND
+            (row.xref.keb IS NULL OR (k IS NOT NULL AND k.keb = row.xref.keb))
+          RETURN oe
+          ORDER BY oe.ent_seq
+          LIMIT 1
+        }
+        MATCH (oe:Entry)-[orel:HAS_SENSE]->(dest:Sense)
+        WHERE row.xref.rank IS NULL OR orel.rank = row.xref.rank
+        MERGE (src)-[rel:RELATED_TO {antonym: false}]->(dest)
+
+        RETURN id(rel) AS relationship_id
+    """)
+    result = tx.run(cypher, entries=entries)
+    return result.value('relationship_id')

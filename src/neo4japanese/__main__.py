@@ -45,6 +45,11 @@ def get_parser() -> argparse.ArgumentParser:
 
     parser.add_argument('-b', '--batch-size', type=int, default=1024,
                         help='Sets the batch size for Neo4j DB queries')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--xrefs-only', action='store_true',
+                       help='Only merge cross-references, skip node creation')
+    group.add_argument('--no-xrefs', action='store_true',
+                       help='Skip creation of cross-references')
 
     return parser
 
@@ -117,31 +122,69 @@ def run(args: argparse.Namespace):
 
     # Traverse XML to find all <entry> elements
     all_entries = tree.getroot().xpath('entry')
+    num_batches = math.ceil(len(all_entries) / args.batch_size)
+    iteration = 1
+    iterations = 2
+    if args.xrefs_only or args.no_xrefs:
+        iterations -= 1
+
     logger.info(
         'Discovered %s entries, processing in batches of size %s',
         len(all_entries),
         args.batch_size,
     )
-    num_batches = math.ceil(len(all_entries) / args.batch_size)
     now = datetime.datetime.now()
-    for batch, entries in enumerate(grouper(all_entries, args.batch_size)):
 
-        # Parse XML elements in entries, dropping None entries in last group
-        entries = [jmdict.get_entry(entry) for entry in entries
-                   if entry is not None]
-
-        # Add Entry, Kanji, and Readings to the DB
-        neo_app.add_entries(entries)
-        neo_app.add_kanji_for_entries(entries)
-        neo_app.add_readings_for_entries(entries)
-        neo_app.add_senses_for_entries(entries)
-
+    if not args.xrefs_only:
         logger.info(
-            'Processed batch %s/%s, elapsed time: %s',
-            batch + 1,
-            num_batches,
-            datetime.datetime.now() - now,
+            'Beginning iteration %s/%s over batches',
+            iteration,
+            iterations,
         )
+        for batch, entries in enumerate(grouper(all_entries, args.batch_size)):
+
+            # Parse XML elements, dropping null entries in last group
+            entries = [jmdict.get_entry(entry) for entry in entries
+                       if entry is not None]
+
+            # Add Entry, Kanji, and Readings to the DB
+            neo_app.add_entries(entries)
+            neo_app.add_kanji_for_entries(entries)
+            neo_app.add_readings_for_entries(entries)
+            neo_app.add_senses_for_entries(entries)
+
+            logger.info(
+                'Added Entry, Kanji, Reading, Sense nodes for batch %s/%s, '
+                'elapsed time: %s',
+                batch + 1,
+                num_batches,
+                datetime.datetime.now() - now,
+            )
+
+        iteration += 1
+
+    if not args.no_xrefs:
+        logger.info(
+            'Beginning iteration %s/%s over batches',
+            iteration,
+            iterations,
+        )
+        for batch, entries in enumerate(grouper(all_entries, args.batch_size)):
+
+            # Parse XML elements, dropping null entries in last group
+            entries = [jmdict.get_entry(entry) for entry in entries
+                       if entry is not None]
+
+            # Add cross-reference relationships to the DB
+            neo_app.add_xref_relationships_for_entries(entries)
+
+            logger.info(
+                'Added Sense cross-reference relationships for batch %s/%s, '
+                'elapsed time: %s',
+                batch + 1,
+                num_batches,
+                datetime.datetime.now() - now,
+            )
 
 
 def main(argv: List[str] = sys.argv[1:]) -> int:

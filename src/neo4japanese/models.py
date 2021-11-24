@@ -45,7 +45,7 @@ class Gloss(BaseModel):
 
 
 class SourceType(Enum):
-    """Model for recognized example source types."""
+    """Enumeration for recognized example source types."""
     tat = 'tat'
 
 
@@ -66,11 +66,30 @@ class Example(BaseModel):
     ex_text: str
 
 
+class XrefTag(Enum):
+    """Enumeration for recognized cross-reference tags."""
+    xref = 'xref'
+    ant = 'ant'
+
+
+class Xref(BaseModel):
+    """Model for cross-references."""
+    tag: XrefTag
+    keb: Optional[str]
+    reb: Optional[str]
+    rank: Optional[int]
+
+    class Config:
+        use_enum_values = True
+
+
 class Sense(BaseModel):
     """Model for Sense node."""
     stagk: List[str]
     stagr: List[str]
     pos: List[str]
+    xref: List[Xref]
+    ant: List[Xref]
     field: List[str]
     misc: List[str]
     s_inf: List[str]

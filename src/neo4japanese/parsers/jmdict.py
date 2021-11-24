@@ -18,10 +18,71 @@ from ..models import (
     Reading,
     Sense,
     Sentence,
+    Xref,
+    XrefTag,
 )
 
-# Standard XML namespace
+#: Standard XML namespace
 XML_NAMESPACE = 'http://www.w3.org/XML/1998/namespace'
+
+#: Unicode centre dot
+DOT = '\xb7'
+#: Unicode katakana centre dot
+KANA_DOT = '\u30fb'
+
+#: Unicode range for hiragana characters
+HIRAGANA = ('\u3040', '\u309f')
+#: Unicode range for katagana characters
+KATAKANA = ('\u30a0', '\u30ff')
+#: Unicode range for katagana phonetic extension characters
+KATAKANA_PHONETIC_EXT = ('\u31f0', '\u31ff')
+
+
+def is_kana(string: str) -> bool:
+    """Returns ``True`` iff every character of `string` is a kana.
+
+    Args:
+        string: The string to assess.
+
+    Returns:
+        ``True`` if the string is all kana, ``False`` otherwise.
+    """
+
+    for c in string:
+        result = False
+        for lo, hi in (HIRAGANA, KATAKANA, KATAKANA_PHONETIC_EXT):
+            result = result or lo <= c <= hi
+        if not result:
+            return result
+
+    return True
+
+
+def get_xrefs(sense: etree.Element, tag: XrefTag) -> Xref:
+    """Returns list of :class:`~neo4japanese.models.Xref` for `entry`.
+
+    Args:
+        sense: The <sense> element to parse.
+        tag: The cross-reference tag to search.
+
+    Returns:
+        A list of xref objects.
+    """
+
+    xrefs = []
+    for xref in sense.xpath(str(tag)):
+        fields = {}
+        for token in xref.text.split(KANA_DOT):
+            if token.isdigit():
+                fields['rank'] = int(token)
+            elif is_kana(token):
+                fields['reb'] = token
+            else:
+                fields['keb'] = token
+
+        xrefs.append(Xref(tag=xref.tag, **fields))
+
+    return xrefs
 
 
 def get_kanji(entry: etree.Element) -> List[Kanji]:
@@ -166,6 +227,8 @@ def get_senses(entry: etree.Element) -> List[Sense]:
             stagk=stagk,
             stagr=stagr,
             pos=[elem.text for elem in sense.xpath('pos')],
+            xref=get_xrefs(sense, tag='xref'),
+            ant=get_xrefs(sense, tag='ant'),
             field=[elem.text for elem in sense.xpath('field')],
             misc=[elem.text for elem in sense.xpath('misc')],
             s_inf=[elem.text for elem in sense.xpath('s_inf')],

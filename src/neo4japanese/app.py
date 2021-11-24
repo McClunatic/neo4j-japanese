@@ -171,3 +171,27 @@ class Neo4Japanese:
                 transactions.merge_and_return_senses_for_entries,
                 [entry.dict() for entry in entries],
             )
+
+    def add_xref_relationships_for_entries(
+        self,
+        entries: Iterable[models.Entry],
+    ) -> List[int]:
+        """Adds cross-references for senses in `entries` to the database.
+
+        Args:
+            entries: Iterable of entries.
+
+        Returns:
+            List of created or merged cross-reference relationship IDs.
+        """
+
+        logger.debug(
+            'Adding cross-reference relationships for entries (%s, ..., %s)',
+            entries[0],
+            entries[-1],
+        )
+        with self.driver.session() as session:
+            return session.write_transaction(
+                transactions.merge_and_return_sense_xrefs_for_entries,
+                [entry.dict() for entry in entries],
+            )
