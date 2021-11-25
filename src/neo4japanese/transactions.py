@@ -217,7 +217,7 @@ def merge_and_return_sense_xrefs_for_entries(
 ):
     """Transaction function for :meth:`add_xref_relationships_for_entries`."""
 
-    cypher = textwrap.dedent("""\
+    template_cypher = textwrap.dedent("""\
         UNWIND $entries AS entry
         MATCH (e:Entry {ent_seq: entry.ent_seq})
         WITH
@@ -243,21 +243,40 @@ def merge_and_return_sense_xrefs_for_entries(
         }
 
         UNWIND rows as row
+        CALL apoc.case(
+          [
+            row.xref.reb IS NULL, "%(keb_subquery)s",
+            row.xref.keb IS NULL, "%(reb_subquery)s"
+          ],
+          "%(else_subquery)s",
+          {keb: row.xref.keb, reb: row.xref.reb}
+        )
+        YIELD value
+        WITH row, src, collect(value.oe) as other_entries
         CALL {
-          WITH row
-          MATCH (r:Reading)<-[:HAS_READING]-(oe:Entry)-[:HAS_KANJI]->(k:Kanji)
-          WHERE
-            r.reb = coalesce(row.xref.reb, r.reb) AND
-            (row.xref.keb IS NULL OR (k IS NOT NULL AND k.keb = row.xref.keb))
-          RETURN oe
-          ORDER BY oe.ent_seq
-          LIMIT 1
+          WITH other_entries
+          RETURN CASE
+            WHEN size(other_entries) = 1 THEN other_entries
+            ELSE []
+          END AS other_entry
         }
+
+        UNWIND other_entry as oe
         MATCH (oe:Entry)-[orel:HAS_SENSE]->(dest:Sense)
         WHERE row.xref.rank IS NULL OR orel.rank = row.xref.rank
-        MERGE (src)-[rel:RELATED_TO {antonym: false}]->(dest)
+        MERGE (src)-[rel:REFERENCES {antonym: row.antonym}]->(dest)
 
         RETURN id(rel) AS relationship_id
     """)
+    cypher = template_cypher % {
+        'keb_subquery':
+            "MATCH (oe:Entry)-[:HAS_KANJI]->(:Kanji {keb: keb}) RETURN oe",
+        'reb_subquery':
+            "MATCH (oe:Entry)-[:HAS_READING]->(:READING {reb: reb}) RETURN oe",
+        'else_subquery': (
+            'MATCH (:Kanji {keb: keb})<-[:HAS_KANJI]-(oe:Entry)-'
+            '[:HAS_READING]->(:READING {reb: reb}) RETURN oe'
+        ),
+    }
     result = tx.run(cypher, entries=entries)
     return result.value('relationship_id')
