@@ -116,7 +116,7 @@
         },
         methods: {
           search(event) {
-            this.expr = event.target.elements.searchInput.value
+            if (event !== undefined) this.expr = event.target.elements.searchInput.value
             let match = wanakana.isKana(this.expr)
               ? `MATCH (target:Reading {reb: "${this.expr}"})`
               : `MATCH (target:Kanji {keb: "${this.expr}"})`
