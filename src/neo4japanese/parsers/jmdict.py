@@ -121,7 +121,10 @@ def get_readings(entry: etree.Element) -> List[Reading]:
         readings.append(Reading(
             reb=r_ele.find('reb').text,
             re_nokanji=r_ele.find('re_nokanji') is not None,
-            re_restr=[elem.text for elem in r_ele.xpath('re_restr')],
+            re_restr=(
+                [elem.text for elem in r_ele.xpath('re_restr')] or
+                [elem.text for elem in entry.xpath('.//keb')]
+            ),
             re_inf=[elem.text for elem in r_ele.xpath('re_inf')],
             re_pri=[elem.text for elem in r_ele.xpath('re_pri')],
         ))
