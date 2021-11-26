@@ -164,48 +164,82 @@ def merge_and_return_senses_for_entries(
           SET s.dial = sense.dial
 
         WITH e, s, sense
-        WHERE sense.gloss IS NOT NULL
-        MERGE (s)-[:HAS_GLOSS]->(g:Gloss)
-        ON CREATE
-            SET g.defn = sense.gloss.defn
-            SET g.expl = sense.gloss.expl
-            SET g.fig = sense.gloss.fig
-            SET g.lit = sense.gloss.lit
-            SET g.tm = sense.gloss.tm
+        CALL apoc.do.when(
+          sense.gloss IS NOT NULL,
+          " MERGE (s)-[:HAS_GLOSS]->(g:Gloss)
+            ON CREATE
+              SET g.defn = sense.gloss.defn
+              SET g.expl = sense.gloss.expl
+              SET g.fig = sense.gloss.fig
+              SET g.lit = sense.gloss.lit
+              SET g.tm = sense.gloss.tm
+            RETURN sense.gloss as gloss",
+          "RETURN null as gloss",
+          {e: e, s: s, sense: sense}
+        )
+        YIELD value
 
-        WITH e, s, sense
-        UNWIND sense.stagk AS keb
-        MATCH (e)-[:HAS_KANJI]->(k:Kanji {keb: keb})
-        MERGE (k)-[:IS_DEFINED_BY]->(s)
+        WITH DISTINCT e, s, sense
+        CALL apoc.do.when(
+          size(sense.stagk) > 0,
+          " UNWIND sense.stagk AS keb
+            MATCH (e)-[:HAS_KANJI]->(k:Kanji {keb: keb})
+            MERGE (k)-[:IS_DEFINED_BY]->(s)
+            RETURN keb",
+          "RETURN null as keb",
+          {e: e, s: s, sense: sense}
+        )
+        YIELD value
 
-        WITH e, s, sense
-        UNWIND sense.stagr AS reb
-        MATCH (e)-[:HAS_READING]->(r:Reading {reb: reb})
-        MERGE (r)-[:IS_DEFINED_BY]->(s)
+        WITH DISTINCT e, s, sense
+        CALL apoc.do.when(
+          size(sense.stagr) > 0,
+          " UNWIND sense.stagr AS reb
+            MATCH (e)-[:HAS_READING]->(r:Reading {reb: reb})
+            MERGE (r)-[:IS_DEFINED_BY]->(s)
+            RETURN reb",
+          "RETURN null as reb",
+          {e: e, s: s, sense: sense}
+        )
+        YIELD value
 
-        WITH s, sense
-        UNWIND sense.lsource as lsource
-        MERGE (l:Language {name: lsource.lang.name})
-        MERGE (s)-[r:SOURCED_FROM]->(l)
-        ON CREATE
-          SET r.phrase = lsource.phrase
-          SET r.partial = lsource.partial
-          SET r.wasei = lsource.wasei
+        WITH DISTINCT s, sense
+        CALL apoc.do.when(
+          size(sense.lsource) > 0,
+          " UNWIND sense.lsource as lsource
+            MERGE (l:Language {name: lsource.lang.name})
+            MERGE (s)-[r:SOURCED_FROM]->(l)
+            ON CREATE
+              SET r.phrase = lsource.phrase
+              SET r.partial = lsource.partial
+              SET r.wasei = lsource.wasei
+            RETURN lsource",
+          "RETURN null as lsource",
+          {s: s, sense: sense}
+        )
+        YIELD value
 
-        WITH s, sense
-        UNWIND sense.example as example
-        MERGE (e:Sentence {
-          exsrc_type: example.sentence.exsrc_type,
-          ex_srce: example.sentence.ex_srce
-        })
-        ON CREATE
-          SET e.eng = example.sentence.eng
-          SET e.jpn = example.sentence.jpn
-        MERGE (s)-[r:USED_IN]->(e)
-        ON CREATE
-          SET r.ex_text = example.ex_text
+        WITH DISTINCT s, sense
+        CALL apoc.do.when(
+          size(sense.example) > 0,
+          " UNWIND sense.example as example
+            MERGE (e:Sentence {
+              exsrc_type: example.sentence.exsrc_type,
+              ex_srce: example.sentence.ex_srce
+            })
+            ON CREATE
+              SET e.eng = example.sentence.eng
+              SET e.jpn = example.sentence.jpn
+            MERGE (s)-[r:USED_IN]->(e)
+            ON CREATE
+              SET r.ex_text = example.ex_text
+            RETURN example",
+          "RETURN null as example",
+          {s: s, sense: sense}
+        )
+        YIELD value
 
-        RETURN id(s) AS node_id
+        RETURN DISTINCT id(s) AS node_id
     """)
     result = tx.run(cypher, entries=entries)
     return result.values()
